@@ -48,7 +48,7 @@ static void set_error(char *fmt, ...) {
 //! \brief iomux connection strucure
 typedef struct __iomux_connection {
     uint32_t flags;
-    iomux_callbacks_t *cbs;
+    iomux_callbacks_t cbs;
     unsigned char outbuf[IOMUX_CONNECTION_BUFSIZE];
     int eof;
     int outlen;
@@ -127,7 +127,7 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
     if (connection) {
         if (fd > iomux->maxfd)
             iomux->maxfd = fd;
-        connection->cbs = cbs;
+        memcpy(&connection->cbs, cbs, sizeof(connection->cbs));
         iomux->connections[fd] = connection;
         return 1;
     }
@@ -262,7 +262,7 @@ iomux_handle_timeout(iomux_t *iomux, void *priv)
     int fd = (long int)priv;
 
     if (iomux->connections[fd]) {
-        iomux_callbacks_t *cbs = iomux->connections[fd]->cbs;
+        iomux_callbacks_t *cbs = &iomux->connections[fd]->cbs;
         if (cbs->mux_timeout)
             cbs->mux_timeout(iomux, fd, cbs->priv);
     }
@@ -304,7 +304,7 @@ iomux_listen(iomux_t *iomux, int fd)
         set_error("%s: No connections for fd %d", __FUNCTION__, fd);
         return 0;
     }
-    assert(iomux->connections[fd]->cbs->mux_connection);
+    assert(iomux->connections[fd]->cbs.mux_connection);
 
     if (listen(fd, -1) != 0) {
         set_error("%s: Error listening on fd %d: %s", __FUNCTION__, fd, strerror(errno));
@@ -355,7 +355,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv)
             FD_SET(fd, &rin);
             if (fd > maxfd)
                 maxfd = fd;
-            if (conn->outlen || conn->cbs->mux_output) {
+            if (conn->outlen || conn->cbs.mux_output) {
                 // output pending data
                 FD_SET(fd, &rout);
                 if (fd > maxfd)
@@ -377,7 +377,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv)
     default:
         for (fd = 0; fd <= iomux->maxfd; fd++) {
             if (iomux->connections[fd]) {
-                cbs = iomux->connections[fd]->cbs;
+                cbs = &iomux->connections[fd]->cbs;
                 if (FD_ISSET(fd, &rin)) {
                     // check if this is a listening socket
                     if ((iomux->connections[fd]->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER)) {
@@ -557,8 +557,8 @@ iomux_close(iomux_t *iomux, int fd)
         }
     }
 
-    if(conn->cbs->mux_eof)
-        conn->cbs->mux_eof(iomux, fd, conn->cbs->priv);
+    if(conn->cbs.mux_eof)
+        conn->cbs.mux_eof(iomux, fd, conn->cbs.priv);
 
     iomux_remove(iomux, fd);
 }
