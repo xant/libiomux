@@ -16,6 +16,14 @@ SHAREDFLAGS = -shared
 SHAREDEXT = so
 endif
 
+ifndef $(LIBDIR)
+LIBDIR=/usr/local/lib
+endif
+
+ifndef $(INCDIR)
+INCDIR=/usr/local/include
+endif
+
 
 #CC = gcc
 TARGETS = $(patsubst %.c, %.o, $(wildcard src/*.c))
@@ -42,10 +50,8 @@ clean:
 tests: CFLAGS += -Isrc -Isupport -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -O3
 
 install:
-	@if [ "X$$LIBDIR" == "X" ]; then LIBDIR="/usr/local/lib"; fi; \
-	 if [ "X$$INCDIR" == "X" ]; then INCDIR="/usr/local/include"; fi; \
-	 echo "Installing libraries in $$LIBDIR"; \
-	 cp -v libiomux.a $$LIBDIR/;\
-	 cp -v libiomux.$(SHAREDEXT) $$LIBDIR/;\
-	 echo "Installing headers in $$INCDIR"; \
-	 cp -v src/*.h $$INCDIR/;
+	 @echo "Installing libraries in $(LIBDIR)"; \
+	 cp -v libiomux.a $(LIBDIR)/;\
+	 cp -v libiomux.$(SHAREDEXT) $(LIBDIR)/;\
+	 echo "Installing headers in $(INCDIR)"; \
+	 cp -v src/*.h $(INCDIR)/;
