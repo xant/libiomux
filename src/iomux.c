@@ -36,15 +36,6 @@
 
 int iomux_hangup = 0;
 
-char error[2048];
-
-static void set_error(char *fmt, ...) {
-    va_list arg;
-    va_start(arg, fmt);
-    vsnprintf(error, sizeof(error), fmt, arg);
-    va_end(arg);
-}
-
 //! \brief iomux connection strucure
 typedef struct __iomux_connection {
     uint32_t flags;
@@ -73,8 +64,17 @@ struct __iomux {
     iomux_cb_t hangup_cb;
     void *hangup_priv;
 
+    char error[2048];
+
     TAILQ_HEAD(, __iomux_timeout) timeouts;
 };
+
+static void set_error(iomux_t *iomux, char *fmt, ...) {
+    va_list arg;
+    va_start(arg, fmt);
+    vsnprintf(iomux->error, sizeof(iomux->error), fmt, arg);
+    va_end(arg);
+}
 
 
 #define IOMUX_FLUSH_MAXRETRIES 5	//!< Maximum number of iterations for flushing the output buffer
@@ -106,19 +106,19 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
     iomux_connection_t *connection = NULL;
 
     if (fd < 0) {
-	set_error("fd %d is invalid", fd);
+	set_error(iomux, "fd %d is invalid", fd);
 	return 0;
     } else if (fd >= IOMUX_CONNECTIONS_MAX) {
-	set_error("fd %d exceeds max fd %d", fd, IOMUX_CONNECTIONS_MAX);
+	set_error(iomux, "fd %d exceeds max fd %d", fd, IOMUX_CONNECTIONS_MAX);
 	return 0;
     }
 
     if (iomux->connections[fd]) {
-        set_error("filedescriptor %d already added", fd);
+        set_error(iomux, "filedescriptor %d already added", fd);
         return 0;
     }
     if (!cbs) {
-        set_error("no callbacks have been specified, skipping filedescriptor %d", fd);
+        set_error(iomux, "no callbacks have been specified, skipping filedescriptor %d", fd);
         return 0;
     }
 
@@ -301,13 +301,13 @@ int
 iomux_listen(iomux_t *iomux, int fd)
 {
     if (!iomux->connections[fd]) {
-        set_error("%s: No connections for fd %d", __FUNCTION__, fd);
+        set_error(iomux, "%s: No connections for fd %d", __FUNCTION__, fd);
         return 0;
     }
     assert(iomux->connections[fd]->cbs.mux_connection);
 
     if (listen(fd, -1) != 0) {
-        set_error("%s: Error listening on fd %d: %s", __FUNCTION__, fd, strerror(errno));
+        set_error(iomux, "%s: Error listening on fd %d: %s", __FUNCTION__, fd, strerror(errno));
         return 0;
     }
 
@@ -370,7 +370,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv)
             return;
         if (errno == EAGAIN)
             return;
-        set_error("select(): %s", strerror(errno));
+        set_error(iomux, "select(): %s", strerror(errno));
         break;
     case 0:
         break;
@@ -389,7 +389,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv)
 			    cbs->mux_connection(iomux, newfd, cbs->priv);
                         }
                     } else {
-			static char inbuf[IOMUX_CONNECTION_BUFSIZE];
+			            char inbuf[IOMUX_CONNECTION_BUFSIZE];
                         int rb = read(fd, inbuf, sizeof(inbuf));
 			if (rb == -1) {
 			    if (errno != EINTR && errno != EAGAIN) {
