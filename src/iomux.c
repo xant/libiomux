@@ -584,7 +584,7 @@ iomux_isempty(iomux_t *iomux)
 {
     int fd;
     int ret = 1;
-    for (fd = 0; fd < iomux->maxfd; fd++) {
+    for (fd = 0; fd <= iomux->maxfd; fd++) {
         if (iomux->connections[fd]) {
             ret = 0;
             break;
