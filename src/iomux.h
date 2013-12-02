@@ -38,6 +38,7 @@ void iomux_run(iomux_t *iomux, struct timeval *timeout);
 int  iomux_write(iomux_t *iomux, int fd, const void *buf, int len);
 void iomux_close(iomux_t *iomux, int fd);
 void iomux_destroy(iomux_t *iomux);
+int  iomux_isempty(iomux_t *iomux);
 
 #ifdef __cplusplus
 }
