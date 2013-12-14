@@ -35,6 +35,7 @@ void iomux_hangup_cb(iomux_t *iomux, iomux_cb_t cb, void *priv);
 void iomux_loop(iomux_t *iomux, int timeout);
 void iomux_end_loop(iomux_t *iomux);
 void iomux_run(iomux_t *iomux, struct timeval *timeout);
+void iomux_run_timers(iomux_t *iomux);
 int  iomux_write(iomux_t *iomux, int fd, const void *buf, int len);
 void iomux_close(iomux_t *iomux, int fd);
 void iomux_destroy(iomux_t *iomux);

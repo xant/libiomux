@@ -66,6 +66,8 @@ struct __iomux {
 
     char error[2048];
 
+    struct timeval last_timeout_check;
+
     TAILQ_HEAD(, __iomux_timeout) timeouts;
 };
 
@@ -168,6 +170,9 @@ iomux_schedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
     if (!tv || !cb)
 	return 0;
 
+    if (iomux->last_timeout_check.tv_sec == 0)
+        gettimeofday(&iomux->last_timeout_check, NULL);
+
     timeout = (iomux_timeout_t *)calloc(1, sizeof(iomux_timeout_t));
     memcpy(&timeout->wait_time, tv, sizeof(struct timeval));
     timeout->cb = cb;
@@ -202,6 +207,9 @@ iomux_reschedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
 
     if (!tv || !cb)
 	return 0;
+
+    if (iomux->last_timeout_check.tv_sec == 0)
+        gettimeofday(&iomux->last_timeout_check, NULL);
 
     TAILQ_FOREACH(timeout, &iomux->timeouts, timeout_list) {
         if (cb == timeout->cb && priv == timeout->priv) {
@@ -330,6 +338,32 @@ iomux_hangup_cb(iomux_t *iomux, iomux_cb_t cb, void *priv)
     iomux->hangup_priv = priv;
 }
 
+void
+iomux_run_timers(iomux_t *iomux)
+{
+    struct timeval now;
+    struct timeval diff = { 0, 0 };
+    iomux_timeout_t *timeout = NULL;
+
+    gettimeofday(&now, NULL);
+    if (iomux->last_timeout_check.tv_sec)
+        timersub(&now, &iomux->last_timeout_check, &diff);
+
+    memcpy(&iomux->last_timeout_check, &now, sizeof(struct timeval));
+
+    // update timeouts' waiting time
+    TAILQ_FOREACH(timeout, &iomux->timeouts, timeout_list)
+        timersub(&timeout->wait_time, &diff, &timeout->wait_time);
+
+    // run expired timeouts
+    memset(&diff, 0, sizeof(diff));
+    while ((timeout = TAILQ_FIRST(&iomux->timeouts)) && timercmp(&timeout->wait_time, &diff, <=)) {
+        TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
+        timeout->cb(iomux, timeout->priv);
+        free(timeout);
+    }
+}
+
 /**
  * \brief trigger a runcycle on an iomux
  * \param iomux iomux
@@ -337,7 +371,7 @@ iomux_hangup_cb(iomux_t *iomux, iomux_cb_t cb, void *priv)
  *        happens in the mux within the specified timeout
  */
 void
-iomux_run(iomux_t *iomux, struct timeval *tv)
+iomux_run(iomux_t *iomux, struct timeval *tv_default)
 {
     int fd;
     fd_set rin, rout;
@@ -362,6 +396,24 @@ iomux_run(iomux_t *iomux, struct timeval *tv)
                     maxfd = fd;
             }
         }
+    }
+
+
+    struct timeval *tv = NULL;
+    iomux_timeout_t *timeout = NULL;
+
+    timeout = TAILQ_FIRST(&iomux->timeouts);
+    if (timeout && timeout) {
+        if (timercmp(&timeout->wait_time, tv_default, >))
+            tv = tv_default;
+        else
+            tv = &timeout->wait_time;
+    } else if (timeout) {
+        tv = &timeout->wait_time;
+    } else if (timeout) {
+        tv = tv_default;
+    } else {
+        tv = NULL;
     }
 
     switch (select(maxfd+1, &rin, &rout, NULL, tv)) {
@@ -434,6 +486,8 @@ iomux_run(iomux_t *iomux, struct timeval *tv)
             }
         }
     }
+
+    iomux_run_timers(iomux);
 }
 
 /**
@@ -444,45 +498,9 @@ void
 iomux_loop(iomux_t *iomux, int timeout)
 {
     while (!iomux->leave) {
-        struct timeval start_time;
-        struct timeval end_time;
-        struct timeval diff;
-        struct timeval *tv = NULL;
         struct timeval tv_default = { timeout, 0 };
-        iomux_timeout_t *timeout = NULL;
 
-        gettimeofday(&start_time, NULL);
-
-        timeout = TAILQ_FIRST(&iomux->timeouts);
-        if (timeout && timeout) {
-	    if (timercmp(&timeout->wait_time, &tv_default, >))
-		tv = &tv_default;
-	    else
-		tv = &timeout->wait_time;
-	} else if (timeout) {
-	    tv = &timeout->wait_time;
-	} else if (timeout) {
-            tv = &tv_default;
-	} else {
-	    tv = NULL;
-	}
-
-        iomux_run(iomux, tv);
-
-        gettimeofday(&end_time, NULL);
-        timersub(&end_time, &start_time, &diff);
-
-        // update timeouts' waiting time
-        TAILQ_FOREACH(timeout, &iomux->timeouts, timeout_list)
-            timersub(&timeout->wait_time, &diff, &timeout->wait_time);
-
-        // run expired timeouts
-        memset(&diff, 0, sizeof(diff));
-	while ((timeout = TAILQ_FIRST(&iomux->timeouts)) && timercmp(&timeout->wait_time, &diff, <=)) {
-	    TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
-	    timeout->cb(iomux, timeout->priv);
-	    free(timeout);
-        }
+        iomux_run(iomux, &tv_default);
 
 	if (iomux->loop_end_cb)
 	    iomux->loop_end_cb(iomux, iomux->loop_end_priv);
