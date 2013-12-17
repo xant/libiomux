@@ -445,7 +445,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                         int rb = read(fd, inbuf, sizeof(inbuf));
 			if (rb == -1) {
 			    if (errno != EINTR && errno != EAGAIN) {
-				fprintf(stderr, "read on fd %d failed: %s", fd, strerror(errno));
+				fprintf(stderr, "read on fd %d failed: %s\n", fd, strerror(errno));
 				iomux_close(iomux, fd);
 			    }
 			} else if (rb == 0) {
@@ -472,7 +472,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                     int wb = write(fd, iomux->connections[fd]->outbuf, iomux->connections[fd]->outlen);
 		    if (wb == -1) {
 			if (errno != EINTR || errno != EAGAIN) {
-			    fprintf(stderr, "write on fd %d failed: %s", fd, strerror(errno));
+			    fprintf(stderr, "write on fd %d failed: %s\n", fd, strerror(errno));
                             iomux_close(iomux, fd);
 			}
 		    } else if (wb == 0) {
@@ -567,7 +567,7 @@ iomux_close(iomux_t *iomux, int fd)
 		else
 		    break;
 	    } else if (wb == 0) {
-		fprintf(stderr, "%s: closing filedescriptor %d with %db pending data", __FUNCTION__, fd, conn->outlen);
+		fprintf(stderr, "%s: closing filedescriptor %d with %db pending data\n", __FUNCTION__, fd, conn->outlen);
 		break;
 	    } else {
 		conn->outlen -= wb;
