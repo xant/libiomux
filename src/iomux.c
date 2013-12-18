@@ -551,6 +551,7 @@ iomux_run_epoll(iomux_t *iomux, struct timeval *tv_default)
         }
     }
     iomux_run_timers(iomux);
+    free(events);
 }
 #endif
 
