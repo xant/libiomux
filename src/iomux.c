@@ -71,6 +71,7 @@ struct __iomux {
     struct timeval last_timeout_check;
 
 #ifdef HAVE_EPOLL
+    struct epoll_event events[IOMUX_CONNECTIONS_MAX];
     int efd; 
 #endif
 
@@ -503,8 +504,6 @@ iomux_run_epoll(iomux_t *iomux, struct timeval *tv_default)
     int fd;
 
     struct epoll_event event;
-    struct epoll_event *events = calloc(IOMUX_CONNECTIONS_MAX, sizeof(event));
-
     struct timeval *tv = NULL;
     iomux_timeout_t *timeout = NULL;
 
@@ -523,35 +522,34 @@ iomux_run_epoll(iomux_t *iomux, struct timeval *tv_default)
     }
 
     int i;
-    int n = epoll_wait(iomux->efd, events, IOMUX_CONNECTIONS_MAX, (tv->tv_sec * 1000) + (tv->tv_usec / 1000));
+    int n = epoll_wait(iomux->efd, iomux->events, IOMUX_CONNECTIONS_MAX, (tv->tv_sec * 1000) + (tv->tv_usec / 1000));
     for (i = 0; i < n; i++) {
-        if ((events[i].events & EPOLLERR) ||
-          (events[i].events & EPOLLHUP) ||
-          (!(events[i].events & EPOLLIN || events[i].events & EPOLLOUT)))
+        if ((iomux->events[i].events & EPOLLERR) ||
+          (iomux->events[i].events & EPOLLHUP) ||
+          (!(iomux->events[i].events & EPOLLIN || iomux->events[i].events & EPOLLOUT)))
         {
             fprintf (stderr, "epoll error : %s\n", strerror(errno));
-            iomux_close(iomux, events[i].data.fd);
+            iomux_close(iomux, iomux->events[i].data.fd);
             continue;
         }
-        fd  = events[i].data.fd;
+        fd  = iomux->events[i].data.fd;
         if ((iomux->connections[fd]->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER))
         {
             iomux_accept_connections_fd(iomux, fd);
         } else {
-            if (events[i].events & EPOLLIN) {
+            if (iomux->events[i].events & EPOLLIN) {
                 iomux_read_fd(iomux, fd);
             }
 
             if (!iomux->connections[fd]) // connection has been closed/removed
                 continue;
 
-            if (events[i].events& EPOLLOUT) {
+            if (iomux->events[i].events& EPOLLOUT) {
                 iomux_write_fd(iomux, fd);
             }
         }
     }
     iomux_run_timers(iomux);
-    free(events);
 }
 #endif
 
