@@ -24,7 +24,10 @@
 #include <arpa/inet.h>
 
 #include <stdarg.h>
+
+#ifdef HAVE_EPOLL
 #include <sys/epoll.h>
+#endif
 
 #include "bsd_queue.h"
 
