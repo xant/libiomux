@@ -51,8 +51,8 @@ typedef struct __iomux_connection {
     int outlen;
     iomux_timeout_id_t timeout_id;
 #if defined(HAVE_KQUEUE)
-    int16_t kfilters;
-    struct kevent event;
+    int16_t kfilters[2];
+    struct kevent event[2];
 #endif
 } iomux_connection_t;
 
@@ -89,7 +89,7 @@ struct __iomux {
     struct epoll_event events[IOMUX_CONNECTIONS_MAX];
     int efd; 
 #elif defined(HAVE_KQUEUE)
-    struct kevent events[IOMUX_CONNECTIONS_MAX];
+    struct kevent events[IOMUX_CONNECTIONS_MAX*2];
     int kfd;
 #endif
     TAILQ_HEAD(, __iomux_timeout) timeouts;
@@ -176,7 +176,7 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
         event.data.fd = fd;
         event.events = EPOLLIN | EPOLLET;
         if (connection->cbs.mux_output)
-            event.events |= EPOLLOUT;
+            event.events = event.events | EPOLLOUT;
 
         int rc = epoll_ctl(iomux->efd, EPOLL_CTL_ADD, fd, &event);
         if (rc == -1) {
@@ -185,21 +185,15 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
             free(connection);
             return 0;;
         }
-#elif defined(HAVE_KQUEUE)
-        connection->kfilters = EVFILT_READ | EV_ONESHOT;
-        if (connection->cbs.mux_output)
-            connection->kfilters |= EVFILT_WRITE;
 
-        EV_SET(&connection->event, fd, connection->kfilters, EV_ADD | EV_ENABLE, 0, 0, 0);
-        struct timespec poll = { 0, 0 };
-        int rc = kevent(iomux->kfd, &connection->event, 1, NULL, 0, &poll);
-        if (rc != 0) {
-            fprintf(stderr, "Errors adding fd %d to kqueue instance %d : %s\n", 
-                    fd, iomux->kfd, strerror(errno));
-            free(connection);
-            return 0;
-        }
+#elif defined(HAVE_KQUEUE)
+        connection->kfilters[0] = EVFILT_READ;
+        connection->kfilters[1] = EVFILT_WRITE;
+
+        EV_SET(&connection->event[0], fd, connection->kfilters[0], EV_ADD, 0, 0, 0);
+        EV_SET(&connection->event[1], fd, connection->kfilters[1], EV_ADD | EV_ONESHOT, 0, 0, 0);
 #endif
+
         if (fd > iomux->maxfd)
             iomux->maxfd = fd;
         if (fd < iomux->minfd)
@@ -239,12 +233,9 @@ iomux_remove(iomux_t *iomux, int fd)
                 fd, iomux->efd, strerror(errno));
     }
 #elif defined(HAVE_KQUEUE)
-    EV_SET(&iomux->connections[fd]->event, fd, iomux->connections[fd]->kfilters, EV_DELETE, 0, 0, 0);
-    struct timespec poll = { 0, 0 };
-    int rc = kevent(iomux->kfd, &iomux->connections[fd]->event, 1, NULL, 0, &poll);
-    if (rc != 0) {
-        fprintf(stderr, "Errors adding removing %d to kqueue instance %d : %s\n", 
-                fd, iomux->kfd, strerror(errno));
+    int i;
+    for (i = 0; i < 2; i++) {
+        EV_SET(&iomux->connections[fd]->event[i], fd, iomux->connections[fd]->kfilters[i], EV_DELETE, 0, 0, 0);
     }
 #endif
     free(iomux->connections[fd]);
@@ -299,7 +290,7 @@ iomux_schedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
 #elif defined(HAVE_KQUEUE)
         timeout->kfilters = EVFILT_TIMER;
         uint64_t msecs = (timeout->wait_time.tv_sec * 1000) + (timeout->wait_time.tv_usec / 1000);
-        EV_SET(&timeout->event, timeout->id, timeout->kfilters, EV_ADD, 0, msecs, timeout);
+        EV_SET(&timeout->event, timeout->id, timeout->kfilters, EV_ADD | EV_ONESHOT, 0, msecs, timeout);
         struct timespec poll = { 0, 0 };
         int rc = kevent(iomux->kfd, &timeout->event, 1, NULL, 0, &poll);
         if (rc != 0) {
@@ -481,7 +472,7 @@ iomux_listen(iomux_t *iomux, int fd)
         return 0;
     }
 
-    iomux->connections[fd]->flags |= IOMUX_CONNECTION_SERVER;
+    iomux->connections[fd]->flags = iomux->connections[fd]->flags | IOMUX_CONNECTION_SERVER;
 
     return 1;
 }
@@ -598,15 +589,6 @@ iomux_write_fd(iomux_t *iomux, int fd)
                 fprintf(stderr, "Errors modifying fd %d on epoll instance %d : %s\n", 
                         fd, iomux->efd, strerror(errno));
             }
-#elif defined(HAVE_KQUEUE)
-            struct timespec poll = { 0, 0 };
-            iomux->connections[fd]->kfilters &= ~EVFILT_WRITE;
-            EV_SET(&iomux->connections[fd]->event, fd, iomux->connections[fd]->kfilters, EV_DELETE, 0, 0, 0);
-            int rc = kevent(iomux->kfd, &iomux->connections[fd]->event, 1, NULL, 0, &poll);
-            if (rc == -1) {
-                fprintf(stderr, "Errors modifying fd %d on kqueue instance %d : %s\n", 
-                        fd, iomux->kfd, strerror(errno));
-            }
 #endif
         }
     }
@@ -619,14 +601,14 @@ iomux_adjust_timeout(iomux_t *iomux, struct timeval *tv_default)
     iomux_timeout_t *timeout = NULL;
 
     timeout = TAILQ_FIRST(&iomux->timeouts);
-    if (timeout && timeout) {
+    if (tv_default && timeout) {
         if (timercmp(&timeout->wait_time, tv_default, >))
             tv = tv_default;
         else
             tv = &timeout->wait_time;
     } else if (timeout) {
         tv = &timeout->wait_time;
-    } else if (timeout) {
+    } else if (tv_default) {
         tv = tv_default;
     } else {
         tv = NULL;
@@ -639,15 +621,34 @@ void
 iomux_run(iomux_t *iomux, struct timeval *tv_default)
 {
     int i;
+    struct timespec ts;
+
+    int n = 0;
+    for (i = iomux->minfd; i <= iomux->maxfd; i++) {
+        if (!iomux->connections[i])
+            continue;
+
+        if (iomux->connections[i]->outlen || iomux->connections[i]->cbs.mux_output) {
+            memcpy(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
+            n += 2;
+        } else {
+            memcpy(&iomux->events[n], &iomux->connections[i]->event, sizeof(struct kevent));
+            n++;
+        }
+    }
 
     struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
-    struct timespec ts = { tv->tv_sec, tv->tv_usec * 1000 };
-    int n = kevent(iomux->kfd, NULL, 0, iomux->events, IOMUX_CONNECTIONS_MAX, &ts);
+    if (tv) {
+        ts.tv_sec = tv->tv_sec;
+        ts.tv_nsec = tv->tv_usec * 1000;
+    }
 
-    if (n == -1) {
-        // TODO : error messges
-    } else if (n > 0) {
-        for (i = 0; i < n; i++) {
+    int cnt = kevent(iomux->kfd, iomux->events, n, iomux->events, n + 1, tv ? &ts : NULL);
+
+    if (cnt == -1) {
+        fprintf(stderr, "kevent returned error : %s\n", strerror(errno));
+    } else if (cnt > 0) {
+        for (i = 0; i < cnt; i++) {
             struct kevent *event = &iomux->events[i];
             int fd = event->ident;
             iomux_connection_t *conn = iomux->connections[fd];
@@ -656,6 +657,10 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 continue;
             }
 
+            if (event->flags & EV_EOF) {
+                iomux_close(iomux, fd);
+                continue;
+            }
             if (event->filter & EVFILT_READ) {
                 if ((iomux->connections[fd]->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER) && event->data) {
                     while(event->data--)
@@ -671,14 +676,13 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
             if (event->filter & EVFILT_TIMER) {
                 iomux_timeout_t *timeout = (iomux_timeout_t *)event->udata;
-                TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
-                timeout->cb(iomux, timeout->priv);
-                free(timeout);
+                if (timeout) {
+                    TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
+                    timeout->cb(iomux, timeout->priv);
+                    free(timeout);
+                }
             } 
             
-            if (event->flags & EV_EOF) {
-                iomux_close(iomux, fd);
-            }
         }
     }
     iomux_update_timeouts(iomux);
@@ -860,7 +864,7 @@ iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
     int wlen = (len > free_space)?free_space:len;
 
     if (wlen) {
-#ifdef HAVE_EPOLL
+#if defined(HAVE_EPOLL)
         struct epoll_event event = { 0 };
         event.data.fd = fd;
         event.events = EPOLLIN | EPOLLET | EPOLLOUT;
@@ -871,6 +875,8 @@ iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
                     fd, iomux->efd, strerror(errno));
             return 0;
         }
+#elif defined(HAVE_KQUEUE)
+        EV_SET(&iomux->connections[fd]->event[1], fd, iomux->connections[fd]->kfilters[1], EV_ADD, 0, 0, 0);
 #endif
         memcpy(iomux->connections[fd]->outbuf+iomux->connections[fd]->outlen,
                 buf, wlen);
