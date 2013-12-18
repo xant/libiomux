@@ -12,6 +12,8 @@ extern int iomux_hangup;
 typedef struct __iomux iomux_t;
 typedef void (*iomux_cb_t)(iomux_t *iomux, void *priv);
 
+typedef int iomux_timeout_id_t;
+
 //! \brief iomux callbacks structure
 typedef struct __iomux_callbacks {
     void (*mux_input)(iomux_t *iomux, int fd, void *data, int len, void *priv);
@@ -25,10 +27,11 @@ typedef struct __iomux_callbacks {
 iomux_t *iomux_create(void);
 int  iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs);
 void iomux_remove(iomux_t *iomux, int fd);
-int  iomux_set_timeout(iomux_t *iomux, int fd, struct timeval *timeout);
-int  iomux_schedule(iomux_t *iomux, struct timeval *timeout, iomux_cb_t cb, void *priv);
-int  iomux_reschedule(iomux_t *iomux, struct timeval *timeout, iomux_cb_t cb, void *priv);
-int  iomux_unschedule(iomux_t *iomux, iomux_cb_t cb, void *priv);
+iomux_timeout_id_t iomux_set_timeout(iomux_t *iomux, int fd, struct timeval *timeout);
+iomux_timeout_id_t iomux_schedule(iomux_t *iomux, struct timeval *timeout, iomux_cb_t cb, void *priv);
+iomux_timeout_id_t iomux_reschedule(iomux_t *iomux, iomux_timeout_id_t id, struct timeval *timeout, iomux_cb_t cb, void *priv);
+int  iomux_unschedule(iomux_t *iomux, iomux_timeout_id_t id);
+int  iomux_unschedule_all(iomux_t *iomux, iomux_cb_t cb, void *priv);
 int  iomux_listen(iomux_t *iomux, int fd);
 void iomux_loop_end_cb(iomux_t *iomux, iomux_cb_t cb, void *priv);
 void iomux_hangup_cb(iomux_t *iomux, iomux_cb_t cb, void *priv);
