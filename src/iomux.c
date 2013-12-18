@@ -523,8 +523,10 @@ iomux_run_epoll(iomux_t *iomux, struct timeval *tv_default)
         tv = NULL;
     }
 
+    int epoll_waiting_time = (tv->tv_sec * 1000) + (tv->tv_usec / 1000);
+    int num_fds = iomux->maxfd - iomux->minfd;
+    int n = epoll_wait(iomux->efd, iomux->events, num_fds, epoll_waiting_time);
     int i;
-    int n = epoll_wait(iomux->efd, iomux->events, IOMUX_CONNECTIONS_MAX, (tv->tv_sec * 1000) + (tv->tv_usec / 1000));
     for (i = 0; i < n; i++) {
         if ((iomux->events[i].events & EPOLLERR) ||
           (iomux->events[i].events & EPOLLHUP) ||
@@ -767,7 +769,7 @@ iomux_isempty(iomux_t *iomux)
 {
     int fd;
     int ret = 1;
-    for (fd = 0; fd <= iomux->maxfd; fd++) {
+    for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
         if (iomux->connections[fd]) {
             ret = 0;
             break;
