@@ -506,7 +506,6 @@ iomux_run_epoll(iomux_t *iomux, struct timeval *tv_default)
 {
     int fd;
 
-    struct epoll_event event;
     struct timeval *tv = NULL;
     iomux_timeout_t *timeout = NULL;
 
