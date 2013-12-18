@@ -24,6 +24,7 @@
 #include <arpa/inet.h>
 
 #include <stdarg.h>
+#include <sys/epoll.h>
 
 #include "bsd_queue.h"
 
@@ -145,12 +146,12 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
 
 #ifdef HAVE_EPOLL
         struct epoll_event event;
-        event.data.fd = fd
+        event.data.fd = fd;
         event.events = EPOLLIN | EPOLLET;
-        if (conn->cbs.mux_output)
+        if (connection->cbs.mux_output)
             event.events |= EPOLLOUT;
 
-        rc = epoll_ctl(iomux->efd, EPOLL_CTL_ADD, fd, &event);
+        int rc = epoll_ctl(iomux->efd, EPOLL_CTL_ADD, fd, &event);
         if (rc == -1) {
             fprintf(stderr, "Errors adding fd %d to epoll instance %d : %s\n", 
                     fd, iomux->efd, strerror(errno));
@@ -185,17 +186,16 @@ iomux_remove(iomux_t *iomux, int fd)
 
 #ifdef HAVE_EPOLL
         struct epoll_event event;
-        event.data.fd = fd
+        event.data.fd = fd;
 
         // NOTE: events might be NULL but on linux kernels < 2.6.9 
         //       it was required to be non-NULL even if ignored
         event.events = EPOLLIN | EPOLLET | EPOLLOUT;
 
-        rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
+        int rc = epoll_ctl(iomux->efd, EPOLL_CTL_DEL, fd, &event);
         if (rc == -1) {
-            fprintf(stderr, "Errors adding fd %d to epoll instance %d : %s\n", 
+            fprintf(stderr, "Errors removing fd %d from epoll instance %d : %s\n", 
                     fd, iomux->efd, strerror(errno));
-            return 0;
         }
 #endif
     free(iomux->connections[fd]);
@@ -483,10 +483,10 @@ iomux_write_fd(iomux_t *iomux, int fd)
 #ifdef HAVE_EPOLL
             // let's unregister this fd from EPOLLOUT events (seems nothing needs to be sent anymore)
             struct epoll_event event;
-            event.data.fd = fd
+            event.data.fd = fd;
             event.events = EPOLLIN | EPOLLET;
 
-            rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
+            int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
             if (rc == -1) {
                 fprintf(stderr, "Errors modifying fd %d on epoll instance %d : %s\n", 
                         fd, iomux->efd, strerror(errno));
@@ -501,7 +501,6 @@ void
 iomux_run_epoll(iomux_t *iomux, struct timeval *tv_default)
 {
     int fd;
-    int rc;
 
     struct epoll_event event;
     struct epoll_event *events = calloc(IOMUX_CONNECTIONS_MAX, sizeof(event));
@@ -535,7 +534,6 @@ iomux_run_epoll(iomux_t *iomux, struct timeval *tv_default)
             continue;
         }
         fd  = events[i].data.fd;
-        iomux_callbacks_t *cbs =  &iomux->connections[fd]->cbs;
         if ((iomux->connections[fd]->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER))
         {
             iomux_accept_connections_fd(iomux, fd);
@@ -547,7 +545,7 @@ iomux_run_epoll(iomux_t *iomux, struct timeval *tv_default)
             if (!iomux->connections[fd]) // connection has been closed/removed
                 continue;
 
-            if (evens[i].events& EPOLLOUT) {
+            if (events[i].events& EPOLLOUT) {
                 iomux_write_fd(iomux, fd);
             }
         }
@@ -567,7 +565,6 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 {
     int fd;
     fd_set rin, rout;
-    iomux_callbacks_t *cbs = NULL;
     int maxfd = iomux->minfd;;
 
     FD_ZERO(&rin);
@@ -621,7 +618,6 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     default:
         for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
             if (iomux->connections[fd]) {
-                cbs = &iomux->connections[fd]->cbs;
                 if (FD_ISSET(fd, &rin)) {
                     // check if this is a listening socket
                     if ((iomux->connections[fd]->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER)) {
@@ -695,10 +691,10 @@ iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
     if (wlen) {
 #ifdef HAVE_EPOLL
         struct epoll_event event;
-        event.data.fd = fd
+        event.data.fd = fd;
         event.events = EPOLLIN | EPOLLET | EPOLLOUT;
 
-        rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
+        int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
         if (rc == -1) {
             fprintf(stderr, "Errors adding fd %d to epoll instance %d : %s\n", 
                     fd, iomux->efd, strerror(errno));
