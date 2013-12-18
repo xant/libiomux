@@ -149,7 +149,7 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
     if (connection) {
 
 #ifdef HAVE_EPOLL
-        struct epoll_event event;
+        struct epoll_event event = { 0 };
         event.data.fd = fd;
         event.events = EPOLLIN | EPOLLET;
         if (connection->cbs.mux_output)
@@ -189,7 +189,7 @@ iomux_remove(iomux_t *iomux, int fd)
     iomux_unschedule(iomux, iomux_handle_timeout, (void *)(long int)fd);
 
 #ifdef HAVE_EPOLL
-        struct epoll_event event;
+        struct epoll_event event = { 0 };
         event.data.fd = fd;
 
         // NOTE: events might be NULL but on linux kernels < 2.6.9 
@@ -197,7 +197,7 @@ iomux_remove(iomux_t *iomux, int fd)
         event.events = EPOLLIN | EPOLLET | EPOLLOUT;
 
         int rc = epoll_ctl(iomux->efd, EPOLL_CTL_DEL, fd, &event);
-        if (rc == -1) {
+        if (rc == -1 && errno != EBADF) {
             fprintf(stderr, "Errors removing fd %d from epoll instance %d : %s\n", 
                     fd, iomux->efd, strerror(errno));
         }
@@ -486,7 +486,7 @@ iomux_write_fd(iomux_t *iomux, int fd)
         } else if (!cbs->mux_output) {
 #ifdef HAVE_EPOLL
             // let's unregister this fd from EPOLLOUT events (seems nothing needs to be sent anymore)
-            struct epoll_event event;
+            struct epoll_event event = { 0 };
             event.data.fd = fd;
             event.events = EPOLLIN | EPOLLET;
 
@@ -691,7 +691,7 @@ iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
 
     if (wlen) {
 #ifdef HAVE_EPOLL
-        struct epoll_event event;
+        struct epoll_event event = { 0 };
         event.data.fd = fd;
         event.events = EPOLLIN | EPOLLET | EPOLLOUT;
 
