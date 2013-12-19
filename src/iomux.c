@@ -549,7 +549,7 @@ iomux_update_timeouts(iomux_t *iomux)
 
     memset(&diff, 0, sizeof(diff));
 
-#if defined (HAVE_KQUEUE)
+#if defined (HAVE_KQUEUE) || defined(HAVE_EPOLL)
     // remove expired timeouts (but they should have been removed when fired ... weird)
     while ((timeout = TAILQ_FIRST(&iomux->timeouts)) && timercmp(&timeout->wait_time, &diff, <=)) {
         TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
