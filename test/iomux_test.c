@@ -41,7 +41,6 @@ struct {
     char string[256];
 } test_context;
 
-int fd1, fd2;
 int client, server;
 
 iomux_callbacks_t callbacks = 
@@ -269,9 +268,6 @@ main(int argc, char **argv)
     iomux_destroy(mux);
 
     t_summary();
-
-    close(fd1);
-    close(fd2);
 
     exit(0);
 }
