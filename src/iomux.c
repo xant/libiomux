@@ -642,21 +642,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         }
     }
 
-    iomux_timeout_t *timeout = NULL;
-    struct timeval diff = { 0, 0 };
-    iomux_update_timeouts(iomux);
-    TAILQ_FOREACH(timeout, &iomux->timeouts, timeout_list) {
-        if (timercmp(&timeout->wait_time, &diff, <=)) {
-            timeout->kfilters = EVFILT_TIMER;
-            uint64_t msecs = (timeout->wait_time.tv_sec * 1000) + (timeout->wait_time.tv_usec / 1000);
-            EV_SET(&timeout->event, timeout->id, timeout->kfilters, EV_ADD | EV_ONESHOT, 0, msecs, timeout);
-            memcpy(&iomux->events[n++], &timeout->event, sizeof(struct kevent));
-        } else {
-            break;
-        }
-    }
-
-    struct timeval *tv = tv_default; //iomux_adjust_timeout(iomux, tv_default);
+    struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
     if (tv) {
         ts.tv_sec = tv->tv_sec;
         ts.tv_nsec = tv->tv_usec * 1000;
@@ -704,7 +690,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 {
     int fd;
 
-    struct timeval *tv = tv_default;//iomux_adjust_timeout(iomux, tv_default);
+    struct timeval *tv = tv_default;
 
     int epoll_waiting_time = (tv->tv_sec * 1000) + (tv->tv_usec / 1000);
     int num_fds = iomux->maxfd - iomux->minfd + 1;
