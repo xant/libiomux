@@ -239,7 +239,7 @@ iomux_remove(iomux_t *iomux, int fd)
         EV_SET(&iomux->connections[fd]->event[i], fd, iomux->connections[fd]->kfilters[i], EV_DELETE, 0, 0, 0);
     }
     struct timespec poll = { 0, 0 };
-    kevent(iomux->kfd, &iomux->connections[fd]->event, 2, NULL, 0, &poll);
+    kevent(iomux->kfd, iomux->connections[fd]->event, 2, NULL, 0, &poll);
 #endif
     free(iomux->connections[fd]);
     iomux->connections[fd] = NULL;
