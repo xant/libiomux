@@ -28,7 +28,8 @@ endif
 #CC = gcc
 TARGETS = $(patsubst %.c, %.o, $(wildcard src/*.c))
 
-TEST_EXEC_ORDER = 
+TESTS = $(patsubst %.c, %, $(wildcard test/*.c))
+TEST_EXEC_ORDER =  iomux_test
 
 all: objects static shared
 
@@ -48,6 +49,13 @@ clean:
 	rm -f libiomux.$(SHAREDEXT)
 
 tests: CFLAGS += -Isrc -Isupport -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -O3
+tests: support/testing.o static
+	@for i in $(TESTS); do\
+	  echo "$(CC) $(CFLAGS) $$i.c -o $$i libiomux.a $(LDFLAGS) -lm";\
+	  $(CC) $(CFLAGS) $$i.c -o $$i libiomux.a support/testing.o $(LDFLAGS) -lm;\
+	done;\
+	for i in $(TEST_EXEC_ORDER); do echo; test/$$i; echo; done
+
 
 install:
 	 @echo "Installing libraries in $(LIBDIR)"; \
