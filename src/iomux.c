@@ -492,16 +492,6 @@ iomux_update_timeouts(iomux_t *iomux)
 
     memcpy(&iomux->last_timeout_check, &now, sizeof(struct timeval));
 
-#if defined (HAVE_KQUEUE) || defined(HAVE_EPOLL)
-    struct timeval diff2 = { 0, 0 };
-    // remove expired timeouts (but they should have been removed when fired ... weird)
-    while ((timeout = TAILQ_FIRST(&iomux->timeouts)) && timercmp(&timeout->wait_time, &diff2, <=)) {
-        TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
-        fprintf(stderr, "Expired (not-fired) timeout found : %d\n", timeout->id);
-        free(timeout);
-    }
-#endif
-
     // update timeouts' waiting time
     TAILQ_FOREACH(timeout, &iomux->timeouts, timeout_list)
         timersub(&timeout->wait_time, &diff, &timeout->wait_time);
@@ -652,7 +642,21 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         }
     }
 
-    struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
+    iomux_timeout_t *timeout = NULL;
+    struct timeval diff = { 0, 0 };
+    iomux_update_timeouts(iomux);
+    TAILQ_FOREACH(timeout, &iomux->timeouts, timeout_list) {
+        if (timercmp(&timeout->wait_time, &diff, <=)) {
+            timeout->kfilters = EVFILT_TIMER;
+            uint64_t msecs = (timeout->wait_time.tv_sec * 1000) + (timeout->wait_time.tv_usec / 1000);
+            EV_SET(&timeout->event, timeout->id, timeout->kfilters, EV_ADD | EV_ONESHOT, 0, msecs, timeout);
+            memcpy(&iomux->events[n++], &timeout->event, sizeof(struct kevent));
+        } else {
+            break;
+        }
+    }
+
+    struct timeval *tv = tv_default; //iomux_adjust_timeout(iomux, tv_default);
     if (tv) {
         ts.tv_sec = tv->tv_sec;
         ts.tv_nsec = tv->tv_usec * 1000;
@@ -743,6 +747,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             timeout->cb(iomux, timeout->priv);
             close(timeout->timerfd);
             free(timeout);
+            iomux->timeouts_fd[fd] = NULL;
         }
     }
     iomux_update_timeouts(iomux);
