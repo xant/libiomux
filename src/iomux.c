@@ -231,16 +231,15 @@ iomux_remove(iomux_t *iomux, int fd)
     //       it was required to be non-NULL even if ignored
     event.events = EPOLLIN | EPOLLOUT;
 
-    int rc = epoll_ctl(iomux->efd, EPOLL_CTL_DEL, fd, &event);
-    if (rc == -1 && errno != EBADF) {
-        fprintf(stderr, "Errors removing fd %d from epoll instance %d : %s\n", 
-                fd, iomux->efd, strerror(errno));
-    }
+    // NOTE: if the fd has been already closed epoll_ctl would return an error
+    epoll_ctl(iomux->efd, EPOLL_CTL_DEL, fd, &event);
 #elif defined(HAVE_KQUEUE)
     int i;
     for (i = 0; i < 2; i++) {
         EV_SET(&iomux->connections[fd]->event[i], fd, iomux->connections[fd]->kfilters[i], EV_DELETE, 0, 0, 0);
     }
+    struct timespec poll = { 0, 0 };
+    kevent(iomux->kfd, &iomux->connections[fd]->event, 2, NULL, 0, &poll);
 #endif
     free(iomux->connections[fd]);
     iomux->connections[fd] = NULL;
@@ -745,13 +744,17 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     int n = epoll_wait(iomux->efd, iomux->events, num_fds, epoll_waiting_time);
     int i;
     for (i = 0; i < n; i++) {
-        if ((iomux->events[i].events & EPOLLERR) ||
+        if (
             (iomux->events[i].events & EPOLLHUP))
         {
-            fprintf (stderr, "epoll error : %s\n", strerror(errno));
+            iomux_close(iomux, iomux->events[i].data.fd);
+            continue;
+        } else if ((iomux->events[i].events & EPOLLERR)) {
+            fprintf (stderr, "epoll error on fd %d\n", iomux->events[i].data.fd);
             iomux_close(iomux, iomux->events[i].data.fd);
             continue;
         }
+
         fd  = iomux->events[i].data.fd;
         iomux_connection_t *conn = iomux->connections[fd];
         iomux_timeout_t *timeout = iomux->timeouts_fd[fd];
@@ -969,10 +972,13 @@ iomux_close(iomux_t *iomux, int fd)
         }
     }
 
-    if(conn->cbs.mux_eof)
-        conn->cbs.mux_eof(iomux, fd, conn->cbs.priv);
+    void (*mux_eof)(iomux_t *, int, void *) = conn->cbs.mux_eof;
 
     iomux_remove(iomux, fd);
+
+    if(mux_eof)
+        mux_eof(iomux, fd, conn->cbs.priv);
+
 }
 
 /**
