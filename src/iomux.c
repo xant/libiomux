@@ -940,11 +940,12 @@ iomux_close(iomux_t *iomux, int fd)
     }
 
     void (*mux_eof)(iomux_t *, int, void *) = conn->cbs.mux_eof;
+    void *priv = conn->cbs.priv;
 
     iomux_remove(iomux, fd);
 
     if(mux_eof)
-        mux_eof(iomux, fd, conn->cbs.priv);
+        mux_eof(iomux, fd, priv);
 
 }
 
