@@ -353,41 +353,8 @@ iomux_schedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
 iomux_timeout_id_t
 iomux_reschedule(iomux_t *iomux, iomux_timeout_id_t id, struct timeval *tv, iomux_cb_t cb, void *priv)
 {
-    iomux_timeout_t *timeout, *timeout2;
-
-    if (!tv || !cb)
-    return 0;
-
-    if (iomux->last_timeout_check.tv_sec == 0)
-        gettimeofday(&iomux->last_timeout_check, NULL);
-
-    TAILQ_FOREACH(timeout, &iomux->timeouts, timeout_list) {
-        if (timeout->id == id) {
-            TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
-            break;
-        }
-    }
-
-    // not found, so create it.
-    if (!timeout) {
-        timeout = (iomux_timeout_t *)calloc(1, sizeof(iomux_timeout_t));
-        timeout->cb = cb;
-        timeout->priv = priv;
-    }
-    memcpy(&timeout->wait_time, tv, sizeof(struct timeval));
-
-    // keep the list sorted in ascending order
-    TAILQ_FOREACH(timeout2, &iomux->timeouts, timeout_list) {
-        if ((tv->tv_sec == timeout2->wait_time.tv_sec
-             &&  tv->tv_usec < timeout2->wait_time.tv_usec)
-            || tv->tv_sec < timeout2->wait_time.tv_sec)
-        {
-            TAILQ_INSERT_BEFORE(timeout2, timeout, timeout_list);
-            return 1;
-        }
-    }
-    TAILQ_INSERT_TAIL(&iomux->timeouts, timeout, timeout_list);
-    return 1;
+    iomux_unschedule(iomux, id);
+    return iomux_schedule(iomux, tv, cb, priv);
 }
 
 /**
