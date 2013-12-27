@@ -119,8 +119,13 @@ static void iomux_handle_timeout(iomux_t *iomux, void *priv);
 iomux_t *iomux_create(void)
 {
     iomux_t *iomux = (iomux_t *)calloc(1, sizeof(iomux_t));
-    if (iomux)
-        TAILQ_INIT(&iomux->timeouts);
+
+    if (!iomux) {
+        fprintf(stderr, "Error allocating iomux");
+        return NULL;
+    }
+
+    TAILQ_INIT(&iomux->timeouts);
 
 #if defined(HAVE_EPOLL)
     iomux->efd = epoll_create1(0);
