@@ -151,6 +151,9 @@ void iomux_end_loop(iomux_t *iomux);
  * @param iomux iomux
  * @param timeout return control to the caller if nothing
  *        happens in the mux within the specified timeout
+ * @note The underlying implementation will use: 
+ *       epoll_wait(), kevent() or select()
+ *       depending on the flags used at compile time
  */
 void iomux_run(iomux_t *iomux, struct timeval *timeout);
 
