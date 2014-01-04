@@ -3,7 +3,6 @@
  *
  * \brief I/O multiplexer
  *
- * \todo Change 0/1 return values to FALSE/TRUE.
  */
 
 #include <assert.h>
@@ -112,10 +111,6 @@ static void set_error(iomux_t *iomux, char *fmt, ...) {
 
 static void iomux_handle_timeout(iomux_t *iomux, void *priv);
 
-/**
- * \brief Create a new iomux handler
- * \returns a valid iomux handler
- */
 iomux_t *iomux_create(void)
 {
     iomux_t *iomux = (iomux_t *)calloc(1, sizeof(iomux_t));
@@ -147,13 +142,7 @@ iomux_t *iomux_create(void)
 
     return iomux;
 }
-/**
- * \brief Add a filedescriptor to the mux
- * \param iomux a valid iomux handler
- * \param fd fd to add
- * \param cbs set of callbacks to use with fd
- * \returns TRUE on success; FALSE otherwise.
- */
+
 int
 iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
 {
@@ -218,11 +207,6 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
     return 0;
 }
 
-/**
- * \brief Remove a filedescriptor from the mux
- * \param iomux a valid iomux handler
- * \param fd fd to remove
- */
 void
 iomux_remove(iomux_t *iomux, int fd)
 {
@@ -258,14 +242,6 @@ iomux_remove(iomux_t *iomux, int fd)
             iomux->minfd++;
 }
 
-/**
- * \brief Register timed callback.
- * \param iomux iomux handle
- * \param tv timeout
- * \param cb callback handle
- * \param priv context
- * \returns TRUE on success; FALSE otherwise.
- */
 iomux_timeout_id_t
 iomux_schedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
 {
@@ -333,16 +309,6 @@ iomux_schedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
     return timeout->id;
 }
 
-/**
- * \brief Reset the schedule time on a timed callback.
- * \param iomux iomux handle
- * \param tv new timeout
- * \param cb callback handle
- * \param priv context
- * \returns TRUE on success; FALSE otherwise.
- *
- * \note If the timed callback is not found it is added.
- */
 iomux_timeout_id_t
 iomux_reschedule(iomux_t *iomux, iomux_timeout_id_t id, struct timeval *tv, iomux_cb_t cb, void *priv)
 {
@@ -350,14 +316,6 @@ iomux_reschedule(iomux_t *iomux, iomux_timeout_id_t id, struct timeval *tv, iomu
     return iomux_schedule(iomux, tv, cb, priv);
 }
 
-/**
- * \brief Unregister timed callback.
- * \param iomux iomux handle
- * \param cb callback handle
- * \param priv context
- * \note Removes _all_ instances that match.
- * \returns number of removed callbacks.
- */
 int
 iomux_unschedule_all(iomux_t *iomux, iomux_cb_t cb, void *priv)
 {           
@@ -422,15 +380,6 @@ iomux_handle_timeout(iomux_t *iomux, void *priv)
     }
 }
 
-/**
- * \brief Register a timeout on a connection.
- * \param iomux iomux handle
- * \param fd fd
- * \param tv timeout or NULL
- * \returns TRUE on success; FALSE otherwise.
- * \note If tv is NULL the timeout is disabled.
- * \note Needs to be reset after a timeout has fired.
- */
 iomux_timeout_id_t
 iomux_set_timeout(iomux_t *iomux, int fd, struct timeval *tv)
 {
@@ -445,12 +394,6 @@ iomux_set_timeout(iomux_t *iomux, int fd, struct timeval *tv)
     }
 }
 
-/**
- * \brief put and fd to listening state (aka: server connection)
- * \param iomux a valid iomux handler
- * \param fd the fd to put in listening state
- * \returns TRUE on success; FALSE otherwise.
- */
 int
 iomux_listen(iomux_t *iomux, int fd)
 {
@@ -746,12 +689,6 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
 #else
 
-/**
- * \brief trigger a runcycle on an iomux
- * \param iomux iomux
- * \param timeout return control to the caller if nothing
- *        happens in the mux within the specified timeout
- */
 void
 iomux_run(iomux_t *iomux, struct timeval *tv_default)
 {
@@ -817,10 +754,6 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
 #endif
 
-/**
- * \brief Take over the runloop and handle timeouthandlers while running the mux.
- * \param iomux a valid iomux handler
- */
 void
 iomux_loop(iomux_t *iomux, int timeout)
 {
@@ -838,24 +771,12 @@ iomux_loop(iomux_t *iomux, int timeout)
     iomux->leave = 0;
 }
 
-/**
- * \brief stop a running mux and return control back to the iomux_loop() caller
- * \param iomux a valid iomux handler
- */
 void
 iomux_end_loop(iomux_t *iomux)
 {
     iomux->leave = 1;
 }
 
-/**
- * \brief write to an fd handled by the iomux
- * \param iomux a valid iomux handler
- * \param fd the fd we want to write to
- * \param buf the buffer to write
- * \param len length of the buffer
- * \returns the number of written bytes
- */
 int
 iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
 {
@@ -885,11 +806,6 @@ iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
     return wlen;
 }
 
-/**
- * \brief close a file handled by the iomux
- * \param iomux a valid iomux handler
- * \param fd the fd to close
- */
 void
 iomux_close(iomux_t *iomux, int fd)
 {
@@ -925,10 +841,6 @@ iomux_close(iomux_t *iomux, int fd)
 
 }
 
-/**
- * \brief relase all resources used by an iomux
- * \param iomux a valid iomux handler
- */
 void
 iomux_destroy(iomux_t *iomux)
 {
@@ -945,12 +857,10 @@ int
 iomux_isempty(iomux_t *iomux)
 {
     int fd;
-    int ret = 1;
     for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
         if (iomux->connections[fd]) {
-            ret = 0;
-            break;
+            return 0;
         }
     }
-    return ret;
+    return 1;
 }
