@@ -12,8 +12,7 @@
 extern "C" {
 #endif
 
-#define IOMUX_DEFAULT_TIMEOUT 1
-
+//! if set to true, the hangup callback (if any) will be called at the end of the current runcycle
 extern int iomux_hangup;
 
 typedef struct __iomux iomux_t;
@@ -124,14 +123,23 @@ int  iomux_listen(iomux_t *iomux, int fd);
 
 /**
  * @brief Register the callback which will be called by iomux_loop()
- *        at the end of each runcycle
+ *        at each runcycle before calling iomux_run()
  * @param iomux A valid iomux handler
  * @param cb The callback
  * @param priv A pointer which will be passed to the callback
  * @note iomux_loop() will run the mux (calling iomux_run()) with the
- *       provided timeout. The callback will be called when iomux_run() returns,
- *       just before checking for the leave condition and going ahead calling
- *       iomux_run() again
+ *       provided timeout. The loop_next callback will be called when
+ *       iomux_run() returns, just before checking for the leave condition
+ *       and going ahead calling iomux_run() again
+ */
+void iomux_loop_next_cb(iomux_t *iomux, iomux_cb_t cb, void *priv);
+
+/**
+ * @brief Register the callback which will be called by iomux_loop()
+ *        before returning, after the loop has been ended
+ * @param iomux A valid iomux handler
+ * @param cb The callback
+ * @param priv A pointer which will be passed to the callback
  */
 void iomux_loop_end_cb(iomux_t *iomux, iomux_cb_t cb, void *priv);
 
@@ -147,16 +155,20 @@ void iomux_hangup_cb(iomux_t *iomux, iomux_cb_t cb, void *priv);
 /**
  * @brief Take over the runloop and handle timeouthandlers while running the mux.
  * @param iomux A valid iomux handler
- * @param timeout The maximum amount of time that iomux_loop can spend waiting for
+ * @param timeout The maximum amount of time that iomux_loop() can spend waiting for
  *                activity before checking for the end-of-loop and the hangup conditions
- * @note  If there is activity on a monitored filedescriptor or some timer has fired,
- *         the end-of-loop and hangup conditions might be checked before the timeout expires.
+ * @note If there is activity on a monitored filedescriptor or some timer has fired,
+ *        the end-of-loop and hangup conditions might be checked before the whole
+ *        timeout has passed.
+ * @note Before returning the end_loop callback (if anyw) will be called
  */
 void iomux_loop(iomux_t *iomux, struct timeval *timeout);
 
 /**
  * @brief Stop a running mux and return control back to the iomux_loop() caller
  * @param iomux A valid iomux handler
+ * @note If an end_loop callback is registered, it will be called by iomux_loop() just
+ *       before returning to the caller.
  */
 void iomux_end_loop(iomux_t *iomux);
 

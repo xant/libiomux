@@ -38,7 +38,6 @@
 #define IOMUX_CONNECTIONS_MAX 65535
 #define IOMUX_CONNECTION_BUFSIZE 16384
 #define IOMUX_CONNECTION_SERVER (1)
-#define IOMUX_EOF_TIMEOUT IOMUX_DEFAULT_TIMEOUT
 
 int iomux_hangup = 0;
 
@@ -78,6 +77,8 @@ struct __iomux {
     int minfd;
     int leave;
 
+    iomux_cb_t loop_next_cb;
+    void *loop_next_priv;
     iomux_cb_t loop_end_cb;
     void *loop_end_priv;
     iomux_cb_t hangup_cb;
@@ -411,6 +412,13 @@ iomux_listen(iomux_t *iomux, int fd)
     iomux->connections[fd]->flags = iomux->connections[fd]->flags | IOMUX_CONNECTION_SERVER;
 
     return 1;
+}
+
+void
+iomux_loop_next_cb(iomux_t *iomux, iomux_cb_t cb, void *priv)
+{
+    iomux->loop_next_cb = cb;
+    iomux->loop_next_priv = priv;
 }
 
 void
@@ -758,14 +766,18 @@ void
 iomux_loop(iomux_t *iomux, struct timeval *tv_default)
 {
     while (!iomux->leave) {
-        iomux_run(iomux, tv_default);
+        if (iomux->loop_next_cb)
+            iomux->loop_next_cb(iomux, iomux->loop_end_priv);
 
-        if (iomux->loop_end_cb)
-            iomux->loop_end_cb(iomux, iomux->loop_end_priv);
+        iomux_run(iomux, tv_default);
 
         if (iomux_hangup && iomux->hangup_cb)
             iomux->hangup_cb(iomux, iomux->hangup_priv);
     }
+
+    if (iomux->loop_end_cb)
+        iomux->loop_end_cb(iomux, iomux->loop_end_priv);
+
     iomux->leave = 0;
 }
 

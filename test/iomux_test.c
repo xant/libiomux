@@ -194,13 +194,13 @@ open_connection(const char *host, int port, unsigned int timeout)
 
 void test_input(iomux_t *mux, int fd, void *data, int len, void *priv)
 {
-    struct timeval tv = { 1, 0 };
+    struct timeval tv = { 0, 5000 };
 
     if (len != strlen(TEST_STRING)) {
         t_failure("len %d should %d", len, strlen(TEST_STRING));
     } else {
         t_validate_buffer(data, len, TEST_STRING, len);
-        t_testing("iomux_set_timeout(mux, server=%d, tv={ 1, 0 })", server);
+        t_testing("iomux_set_timeout(mux, server=%d, tv={ 0, 5000 })", server);
         t_validate_int(iomux_set_timeout(mux, server, &tv), 1);
     }
 }
@@ -222,6 +222,25 @@ void test_eof(iomux_t *mux, int fd, void *priv)
 void test_connection(iomux_t *mux, int fd, void *priv)
 {
     iomux_add(mux, fd, &callbacks);
+}
+
+static void loop_end(iomux_t *mux, void *priv)
+{
+    t_success();
+}
+
+static void loop_hangup(iomux_t *mux, void *priv)
+{
+    t_success();
+    t_testing("iomux_loop_end() callback");
+    iomux_end_loop(mux);
+}
+
+static void loop_next(iomux_t *mux, void *priv)
+{
+    t_success();
+    t_testing("iomux_hangup() callback");
+    iomux_hangup = 1;
 }
 
 int
@@ -264,6 +283,15 @@ main(int argc, char **argv)
     t_testing("iomux_input_callback() callback");
     iomux_loop(mux, NULL);
     t_success();
+
+    iomux_loop_next_cb(mux, loop_next, NULL);
+    iomux_loop_end_cb(mux, loop_end, NULL);
+    iomux_hangup_cb(mux, loop_hangup, NULL);
+
+    t_testing("iomux_loop_next() callback");
+
+    struct timeval tv = { 0, 5000 };
+    iomux_loop(mux, &tv);
 
     iomux_destroy(mux);
 
