@@ -648,7 +648,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
     struct timeval *tv = tv_default;
 
-    int epoll_waiting_time = (tv->tv_sec * 1000) + (tv->tv_usec / 1000);
+    int epoll_waiting_time = tv ? ((tv->tv_sec * 1000) + (tv->tv_usec / 1000)) : -1;
     int num_fds = iomux->maxfd - iomux->minfd + 1;
     int n = epoll_wait(iomux->efd, iomux->events, num_fds, epoll_waiting_time);
     int i;
