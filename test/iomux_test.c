@@ -262,7 +262,7 @@ main(int argc, char **argv)
     t_validate_int(iomux_write(mux, client, TEST_STRING, strlen(TEST_STRING)), strlen(TEST_STRING));
 
     t_testing("iomux_input_callback() callback");
-    iomux_loop(mux, 0);
+    iomux_loop(mux, NULL);
     t_success();
 
     iomux_destroy(mux);

@@ -755,12 +755,10 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 #endif
 
 void
-iomux_loop(iomux_t *iomux, int timeout)
+iomux_loop(iomux_t *iomux, struct timeval *tv_default)
 {
     while (!iomux->leave) {
-        struct timeval tv_default = { timeout, 0 };
-
-        iomux_run(iomux, &tv_default);
+        iomux_run(iomux, tv_default);
 
         if (iomux->loop_end_cb)
             iomux->loop_end_cb(iomux, iomux->loop_end_priv);
