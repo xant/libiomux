@@ -213,6 +213,8 @@ void iomux_destroy(iomux_t *iomux);
  */
 int iomux_isempty(iomux_t *iomux);
 
+iomux_callbacks_t *iomux_callbacks(iomux_t *iomux, int fd);
+
 #ifdef __cplusplus
 }
 #endif

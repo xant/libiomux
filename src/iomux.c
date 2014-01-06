@@ -36,7 +36,7 @@
 #include "iomux.h"
 
 #define IOMUX_CONNECTIONS_MAX 65535
-#define IOMUX_CONNECTION_BUFSIZE 16384
+#define IOMUX_CONNECTION_BUFSIZE 65535
 #define IOMUX_CONNECTION_SERVER (1)
 
 int iomux_hangup = 0;
@@ -876,4 +876,11 @@ iomux_isempty(iomux_t *iomux)
         }
     }
     return 1;
+}
+
+iomux_callbacks_t *iomux_callbacks(iomux_t *iomux, int fd)
+{
+    if (iomux->connections[fd])
+        return &iomux->connections[fd]->cbs;
+    return NULL;
 }
