@@ -64,9 +64,6 @@ typedef struct __iomux_timeout {
     void *priv;
 #if defined(HAVE_EPOLL)
     int timerfd;
-#elif defined(HAVE_KQUEUE)
-    int16_t kfilters;
-    struct kevent event;
 #endif
 } iomux_timeout_t;
 
@@ -189,8 +186,8 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
         connection->kfilters[0] = EVFILT_READ;
         connection->kfilters[1] = EVFILT_WRITE;
 
-        EV_SET(&connection->event[0], fd, connection->kfilters[0], EV_ADD, 0, 0, 0);
-        EV_SET(&connection->event[1], fd, connection->kfilters[1], EV_ADD | EV_ONESHOT, 0, 0, 0);
+        EV_SET(&connection->event[0], fd, connection->kfilters[0], EV_ADD | EV_ONESHOT, 0, 0, 0);
+        EV_SET(&connection->event[1], fd, connection->kfilters[1], EV_DELETE | EV_ONESHOT, 0, 0, 0);
 #endif
 
         if (fd > iomux->maxfd)
@@ -226,10 +223,8 @@ iomux_remove(iomux_t *iomux, int fd)
 #elif defined(HAVE_KQUEUE)
     int i;
     for (i = 0; i < 2; i++) {
-        EV_SET(&iomux->connections[fd]->event[i], fd, iomux->connections[fd]->kfilters[i], EV_DELETE, 0, 0, 0);
+        EV_SET(&iomux->connections[fd]->event[i], fd, iomux->connections[fd]->kfilters[i], EV_DELETE | EV_ONESHOT, 0, 0, 0);
     }
-    struct timespec poll = { 0, 0 };
-    kevent(iomux->kfd, iomux->connections[fd]->event, 2, NULL, 0, &poll);
 #endif
     free(iomux->connections[fd]);
     iomux->connections[fd] = NULL;
@@ -350,15 +345,6 @@ iomux_unschedule(iomux_t *iomux, iomux_timeout_id_t id)
 #if defined(HAVE_EPOLL)
             iomux->timeouts_fd[timeout->timerfd] = NULL;
             close(timeout->timerfd);
-#elif defined(HAVE_KQUEUE)
-            EV_SET(&timeout->event, timeout->id, timeout->kfilters, EV_DELETE, 0, 0, 0);
-            struct timespec poll = { 0, 0 };
-            int rc = kevent(iomux->kfd, &timeout->event, 1, NULL, 0, &poll);
-            if (rc != 0) {
-                fprintf(stderr, "Errors adding timeout to kqueue instance %d : %s\n", 
-                        iomux->kfd, strerror(errno));
-                return 0;
-            }
 #endif
             TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
             free(timeout);
@@ -495,8 +481,23 @@ iomux_write_fd(iomux_t *iomux, int fd)
 
     // note that the fd might have been closed by the mux_output callback
     // so we need to check for its presence again
-    if (!iomux->connections[fd] || !iomux->connections[fd]->outlen)
-        return;
+    if (!iomux->connections[fd] || !iomux->connections[fd]->outlen) {
+#if defined(HAVE_EPOLL)
+            // let's unregister this fd from EPOLLOUT events (seems nothing needs to be sent anymore)
+            struct epoll_event event = { 0 };
+            event.data.fd = fd;
+            event.events = EPOLLIN;
+
+            int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
+            if (rc == -1) {
+                fprintf(stderr, "Errors modifying fd %d on epoll instance %d : %s\n", 
+                        fd, iomux->efd, strerror(errno));
+            }
+#elif defined(HAVE_KQUEUE)
+        EV_SET(&iomux->connections[fd]->event[1], fd, iomux->connections[fd]->kfilters[1], EV_DELETE | EV_ONESHOT, 0, 0, 0);
+#endif
+        return; 
+    }
 
     int wb = write(fd, iomux->connections[fd]->outbuf, iomux->connections[fd]->outlen);
     if (wb == -1) {
@@ -522,6 +523,8 @@ iomux_write_fd(iomux_t *iomux, int fd)
                 fprintf(stderr, "Errors modifying fd %d on epoll instance %d : %s\n", 
                         fd, iomux->efd, strerror(errno));
             }
+#elif defined(HAVE_KQUEUE)
+        EV_SET(&iomux->connections[fd]->event[1], fd, iomux->connections[fd]->kfilters[1], EV_DELETE | EV_ONESHOT, 0, 0, 0);
 #endif
         }
     }
@@ -589,7 +592,6 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     for (i = iomux->minfd; i <= iomux->maxfd; i++) {
         if (!iomux->connections[i])
             continue;
-
         if (iomux->connections[i]->outlen || iomux->connections[i]->cbs.mux_output) {
             memcpy(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
             n += 2;
@@ -605,7 +607,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         ts.tv_nsec = tv->tv_usec * 1000;
     }
 
-    int cnt = kevent(iomux->kfd, iomux->events, n, iomux->events, n + 1, tv ? &ts : NULL);
+    int cnt = kevent(iomux->kfd, iomux->events, n, iomux->events, IOMUX_CONNECTIONS_MAX * 2, tv ? &ts : NULL);
 
     if (cnt == -1) {
         fprintf(stderr, "kevent returned error : %s\n", strerror(errno));
@@ -807,7 +809,7 @@ iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
             return 0;
         }
 #elif defined(HAVE_KQUEUE)
-        EV_SET(&iomux->connections[fd]->event[1], fd, iomux->connections[fd]->kfilters[1], EV_ADD, 0, 0, 0);
+        EV_SET(&iomux->connections[fd]->event[1], fd, iomux->connections[fd]->kfilters[1], EV_ADD | EV_ONESHOT, 0, 0, 0);
 #endif
         memcpy(iomux->connections[fd]->outbuf+iomux->connections[fd]->outlen,
                 buf, wlen);
