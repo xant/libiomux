@@ -565,13 +565,14 @@ iomux_run_timeouts(iomux_t *iomux)
     else
         memcpy(&diff, &now, sizeof(now));
 
+    iomux_update_timeouts(iomux);
+
+    memset(&diff, 0, sizeof(diff));
     while ((timeout = TAILQ_FIRST(&iomux->timeouts)) && timercmp(&timeout->wait_time, &diff, <=)) {
         TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
         timeout->cb(iomux, timeout->priv);
         free(timeout);
     }
-
-    iomux_update_timeouts(iomux);
 }
 
 #endif
