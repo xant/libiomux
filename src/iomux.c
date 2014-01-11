@@ -460,9 +460,12 @@ iomux_read_fd(iomux_t *iomux, int fd)
     int rb = read(fd, inbuf, sizeof(inbuf));
     if (rb == -1) {
         if (errno != EINTR && errno != EAGAIN) {
-             fprintf(stderr, "read on fd %d failed: %s\n", fd, strerror(errno));
-             iomux_close(iomux, fd);
-         }
+            // don't output warnings if the filedescriptor has been closed
+            // without informing the iomux and we detect it only now
+            if (errno != EBADF)
+                fprintf(stderr, "read on fd %d failed: %s\n", fd, strerror(errno));
+            iomux_close(iomux, fd);
+        }
     } else if (rb == 0) {
          iomux_close(iomux, fd);
     } else {
@@ -735,6 +738,15 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             return;
         if (errno == EAGAIN)
             return;
+        else if (errno == EBADF) {
+            // there is some bad filedescriptor amont the managed ones
+            // probably the user called close() on the filedescriptor
+            // without informing the iomux
+            for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
+                if (iomux->connections[fd] && fcntl(fd, F_GETFD, 0) == -1)
+                    iomux_close(iomux, fd);
+            }
+        }
         set_error(iomux, "select(): %s", strerror(errno));
         break;
     case 0:
@@ -826,7 +838,7 @@ iomux_close(iomux_t *iomux, int fd)
     if (!conn) // fd is not registered within iomux
         return;
 
-    if (conn->outlen) { // there is pending data
+    if (fcntl(fd, F_GETFD, 0) != -1 && conn->outlen) { // there is pending data
         int retries = 0;
         while (conn->outlen && retries <= IOMUX_FLUSH_MAXRETRIES) {
             int wb = write(fd, conn->outbuf, conn->outlen);
@@ -854,18 +866,6 @@ iomux_close(iomux_t *iomux, int fd)
 
 }
 
-void
-iomux_destroy(iomux_t *iomux)
-{
-    int fd;
-
-    for (fd = iomux->maxfd; fd >= iomux->minfd; fd--)
-        if (iomux->connections[fd])
-            iomux_close(iomux, fd);
-
-    free(iomux);
-}
-
 int
 iomux_isempty(iomux_t *iomux)
 {
@@ -878,9 +878,31 @@ iomux_isempty(iomux_t *iomux)
     return 1;
 }
 
+int iomux_write_buffer(iomux_t *iomux, int fd)
+{
+    if (iomux->connections[fd])
+        return IOMUX_CONNECTION_BUFSIZE-iomux->connections[fd]->outlen;
+    return 0;
+}
+
+void
+iomux_destroy(iomux_t *iomux)
+{
+    int fd;
+
+    for (fd = iomux->maxfd; fd >= iomux->minfd; fd--)
+        if (iomux->connections[fd])
+            iomux_close(iomux, fd);
+
+    free(iomux);
+}
+
+
 iomux_callbacks_t *iomux_callbacks(iomux_t *iomux, int fd)
 {
     if (iomux->connections[fd])
         return &iomux->connections[fd]->cbs;
     return NULL;
 }
+
+
