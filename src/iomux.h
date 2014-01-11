@@ -213,7 +213,15 @@ void iomux_destroy(iomux_t *iomux);
  */
 int iomux_isempty(iomux_t *iomux);
 
+int iomux_write_buffer(iomux_t *iomux, int fd);
+
 iomux_callbacks_t *iomux_callbacks(iomux_t *iomux, int fd);
+
+typedef struct __iomtee_s iomtee_t;
+
+iomtee_t *iomtee_open(int *vfd, int num_fds, ...);
+int iomtee_fd(iomtee_t *tee);
+void iomtee_close(iomtee_t *tee);
 
 #ifdef __cplusplus
 }
