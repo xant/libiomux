@@ -68,7 +68,7 @@ string2sockaddr(const char *host, int port, struct sockaddr_in *sockaddr)
             port = strtol(p, &pe, 10);        // convert string to number
             if (*pe != '\0') {            // did not match complete string? try as string
 #if (defined(__APPLE__) && defined(__MACH__))
-		        struct servent *e = getservbyname(p, "tcp");
+                struct servent *e = getservbyname(p, "tcp");
 #else
                 struct servent *e = NULL, ebuf;
                 char buf[1024];
@@ -134,17 +134,18 @@ open_socket(const char *host, int port)
 
     sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock == -1)
-    return -1;
+        return -1;
 
     setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
     setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &val,  sizeof(val));
     setsockopt(sock, SOL_SOCKET, SO_LINGER, (void *)&ling, sizeof(ling));
 
     if (string2sockaddr(host, port, &sockaddr) == -1
-    || bind(sock, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) == -1) {
-    shutdown(sock, SHUT_RDWR);
-    close(sock);
-    return -1;
+    || bind(sock, (struct sockaddr *)&sockaddr, sizeof(sockaddr)) == -1)
+    {
+        shutdown(sock, SHUT_RDWR);
+        close(sock);
+        return -1;
     }
 
     listen(sock, -1);
@@ -243,6 +244,21 @@ static void loop_next(iomux_t *mux, void *priv)
     iomux_hangup = 1;
 }
 
+void test_mtee_connection(iomux_t *mux, int fd, void *priv)
+{
+    iomux_callbacks_t *cbs = (iomux_callbacks_t *)priv;
+    iomux_add(mux, fd, cbs);
+}
+
+void test_mtee_input(iomux_t *iomux, int fd, void *data, int len, void *priv)
+{
+    int *count = (int *)priv;
+    if (len == 4 && memcmp(data, "CIAO", 4) == 0)
+        (*count)++;
+    if (*count >= 2)
+        iomux_end_loop(iomux);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -267,7 +283,7 @@ main(int argc, char **argv)
     t_validate_int(iomux_add(mux, server, &callbacks), 1);
     if (!iomux_listen(mux, server))
         exit(-1);
-    
+
     t_testing("opening client connection");
     client = open_connection("localhost", TEST_SERVER_PORT, 5);
     if (!client) 
@@ -294,6 +310,56 @@ main(int argc, char **argv)
     iomux_loop(mux, &tv);
 
     iomux_destroy(mux);
+
+    close(server);
+    close(client);
+
+
+    int count = 0;
+
+    iomux_callbacks_t icbs = {
+        .mux_input = test_mtee_input,
+        .priv = &count
+    };
+
+    iomux_callbacks_t cbs = {
+        .mux_connection = test_mtee_connection,
+        .priv = &icbs
+    };
+
+    server = open_socket("localhost", TEST_SERVER_PORT);
+    mux = iomux_create();
+    iomux_add(mux, server, &cbs);
+    iomux_listen(mux, server);
+
+    client = open_connection("localhost", TEST_SERVER_PORT, 5);
+    int client2 = open_connection("localhost", TEST_SERVER_PORT, 5);
+
+    int tee_fd;
+    t_testing("iomtee_open(client, client2, &tee_dd)");
+    iomtee_t *tee = iomtee_open(&tee_fd, 2, client, client2);
+    t_validate_int((tee_fd >= 0), 1);
+
+    write(tee_fd, "CIAO", 4);
+
+    t_testing("write(tee_fd, \"CIAO\", 4)");
+
+    iomux_loop(mux, &tv);
+
+    t_validate_int(count, 2);
+
+    t_testing("close(client); write(tee_fd, \"CIAO\", 4)");
+    // closing one of the endpoints, the tee still works 
+    // but this time only one receiver will be notified
+    close(client);
+    write(tee_fd, "CIAO", 4);
+    iomux_loop(mux, &tv);
+    t_validate_int(count, 3);
+
+    iomux_destroy(mux);
+    iomtee_close(tee);
+    close(server);
+    close(client2);
 
     t_summary();
 
