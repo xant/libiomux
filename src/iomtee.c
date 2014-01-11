@@ -7,19 +7,18 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include "bsd_queue.h"
 #include "iomux.h"
 
-#define IOMTEE_MAX_FILEDESCRIPTORS 256
-
-typedef struct {
+typedef struct __iomtee_fd_s {
     int fd;
     int rofx;
+    TAILQ_ENTRY(__iomtee_fd_s) next;
 } iomtee_fd_t;
 
 struct __iomtee_s {
     iomux_t *iomux;
-    int num_fds;
-    iomtee_fd_t fds[IOMTEE_MAX_FILEDESCRIPTORS];
+    TAILQ_HEAD(, __iomtee_fd_s) fds;
     char buf[65535];
     int wofx;
     int blen;
@@ -30,11 +29,11 @@ struct __iomtee_s {
 static int iomtee_write_buffer(iomtee_t *tee, void *data, int len)
 {
     int min_rofx = tee->wofx;
-    int i;
     // XXX - inefficient
-    for (i = 0; i < tee->num_fds; i++) {
-        if (tee->fds[i].fd >= 0 && tee->fds[i].rofx < min_rofx)
-            min_rofx = tee->fds[i].rofx;
+    iomtee_fd_t *tfd;
+    TAILQ_FOREACH(tfd, &tee->fds, next) {
+        if (tfd->fd >= 0 && tfd->rofx < min_rofx)
+            min_rofx = tfd->rofx;
     }
 
     int free_space = abs(tee->wofx - min_rofx);
@@ -51,19 +50,18 @@ static int iomtee_write_buffer(iomtee_t *tee, void *data, int len)
     return write_len;
 }
 
-static int iomtee_read_buffer(iomtee_t *tee, int fd_pos, void *out, int len)
+static int iomtee_read_buffer(iomtee_t *tee, iomtee_fd_t *tfd, void *out, int len)
 {
-    int *rofx = &tee->fds[fd_pos].rofx;
-    int free_space = abs(tee->wofx - *rofx);
+    int free_space = abs(tee->wofx - tfd->rofx);
     int read_len = free_space < len ? free_space : len;
-    if (tee->wofx > *rofx) {
-        memcpy(out, &tee->buf[*rofx], read_len);
-        *rofx += len;
+    if (tee->wofx > tfd->rofx) {
+        memcpy(out, &tee->buf[tfd->rofx], read_len);
+        tfd->rofx += len;
     } else {
-        int diff = sizeof(tee->buf) - *rofx;
-        memcpy(out, &tee->buf[*rofx], diff);
+        int diff = sizeof(tee->buf) - tfd->rofx;
+        memcpy(out, &tee->buf[tfd->rofx], diff);
         memcpy(out+diff, &tee->buf[0], read_len - diff);
-        *rofx = read_len - diff;
+        tfd->rofx = read_len - diff;
     }
     return read_len;
 }
@@ -72,23 +70,22 @@ static void iomtee_output(iomux_t *iomux, int fd, void *priv)
 {
     iomtee_t *tee = (iomtee_t *)priv;
     static char buf[65535];
-    iomtee_fd_t *tee_fd = NULL;
-
-    int i;
-    for (i = 0; i < tee->num_fds; i++) {
-        if (tee->fds[i].fd == fd) {
-            tee_fd = &tee->fds[i];
+    iomtee_fd_t *tfd = NULL;
+    iomtee_fd_t *iter;
+    TAILQ_FOREACH(iter, &tee->fds, next) {
+        if (iter->fd == fd) {
+            tfd = iter;
             break;
         }
     }
 
-    if (!tee_fd) {
+    if (!tfd) {
         // TODO - Error Messages
         return;
     }
     
     int write_buffer_size = iomux_write_buffer(iomux, fd);
-    int rb = iomtee_read_buffer(tee, i, buf, write_buffer_size);
+    int rb = iomtee_read_buffer(tee, tfd, buf, write_buffer_size);
     int wb = iomux_write(iomux, fd, buf, rb);
     if (wb == rb) {
         iomux_callbacks_t *cbs = iomux_callbacks(iomux, fd);
@@ -100,9 +97,8 @@ static void iomtee_input(iomux_t *iomux, int fd, void *data, int len, void *priv
 {
     iomtee_t *tee = (iomtee_t *)priv;
     int min_write = len;
-    int i;
-    for (i = 0; i < tee->num_fds; i++) {
-        iomtee_fd_t *tee_fd = &tee->fds[i];
+    iomtee_fd_t *tee_fd;
+    TAILQ_FOREACH(tee_fd, &tee->fds, next) {
         if (tee_fd->fd == -1)
             continue; // skip closed receivers
         int wb = iomux_write(iomux, tee_fd->fd, data, len);
@@ -133,18 +129,16 @@ static void iomtee_eof(iomux_t *iomux, int fd, void *priv)
         return;
     }
 
-    int i, found = 0, more = 0;
-    for (i = 0; i < tee->num_fds; i++) {
-        if (tee->fds[i].fd == fd) {
-            tee->fds[i].fd = -1;
-            found++;
-        }
-        more++;
-        if (found)
+    iomtee_fd_t *tfd, *tmp;
+    TAILQ_FOREACH_SAFE(tfd, &tee->fds, next, tmp) {
+        if (tfd->fd == fd) {
+            tfd->fd = -1;
+            TAILQ_REMOVE(&tee->fds, tfd, next);
             break;
+        }
     }
 
-    if (!more)
+    if (!TAILQ_FIRST(&tee->fds))
         iomux_end_loop(iomux);
 
 }
@@ -183,13 +177,17 @@ iomtee_t *iomtee_open(int *vfd, int num_fds, ...)
         .priv = tee
     };
 
+    TAILQ_INIT(&tee->fds);
+
     int i;
-    tee->num_fds = num_fds;
     va_list ap;
     va_start(ap, num_fds);
     for (i = 0; i < num_fds; i++) {
-        tee->fds[i].fd = va_arg(ap, int);
-        iomux_add(tee->iomux, tee->fds[i].fd, &ocbs);
+        int fd = va_arg(ap, int);
+        iomtee_fd_t *tfd = calloc(1, sizeof(iomtee_fd_t));
+        tfd->fd = fd;
+        TAILQ_INSERT_TAIL(&tee->fds, tfd, next);
+        iomux_add(tee->iomux, tfd->fd, &ocbs);
     }
     va_end(ap);
 
@@ -219,5 +217,10 @@ void iomtee_close(iomtee_t *tee)
     close(tee->pipe[0]);
     close(tee->pipe[1]);
     iomux_destroy(tee->iomux);
+    iomtee_fd_t *tfd, *tmp;
+    TAILQ_FOREACH_SAFE(tfd, &tee->fds, next, tmp) {
+        TAILQ_REMOVE(&tee->fds, tfd, next);
+        free(tfd);
+    }
     free(tee);
 }
