@@ -281,7 +281,7 @@ iomux_schedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
     iomux->timeouts_fd[timeout->timerfd] = timeout;
 
     rc = epoll_ctl(iomux->efd, EPOLL_CTL_ADD, timeout->timerfd, &event);
-    if (rc == -1 && errno != EBADF) {
+    if (rc == -1) {
         fprintf(stderr, "Errors adding timeout %d on epoll instance %d : %s\n", 
                 timeout->id, iomux->efd, strerror(errno));
         close(timeout->timerfd);
@@ -816,8 +816,12 @@ iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
 
         int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
         if (rc == -1) {
-            fprintf(stderr, "Errors adding fd %d to epoll instance %d : %s\n", 
-                    fd, iomux->efd, strerror(errno));
+            if (errno == EBADF) {
+                iomux_close(iomux, fd);
+            } else {
+                fprintf(stderr, "Errors modifying fd %d to epoll instance %d : %s\n", 
+                        fd, iomux->efd, strerror(errno));
+            }
             return 0;
         }
 #elif defined(HAVE_KQUEUE)
