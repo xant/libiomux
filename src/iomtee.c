@@ -1,3 +1,5 @@
+#ifndef NO_PTHREAD
+
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -224,3 +226,5 @@ void iomtee_close(iomtee_t *tee)
     }
     free(tee);
 }
+
+#endif

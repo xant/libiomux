@@ -70,7 +70,9 @@ void iomux_remove(iomux_t *iomux, int fd);
  * @note If timeout is NULL the timeout is disabled.
  * @note Needs to be reset after a timeout has fired.
  */
-iomux_timeout_id_t iomux_set_timeout(iomux_t *iomux, int fd, struct timeval *timeout);
+iomux_timeout_id_t iomux_set_timeout(iomux_t *iomux,
+                                     int fd,
+                                     struct timeval *timeout);
 
 /**
  * @brief Register timed callback.
@@ -80,7 +82,10 @@ iomux_timeout_id_t iomux_set_timeout(iomux_t *iomux, int fd, struct timeval *tim
  * @param priv A private context which will be passed to the callback
  * @returns The timeout id  on success; 0 otherwise.
  */
-iomux_timeout_id_t iomux_schedule(iomux_t *iomux, struct timeval *timeout, iomux_cb_t cb, void *priv);
+iomux_timeout_id_t iomux_schedule(iomux_t *iomux,
+                                  struct timeval *timeout,
+                                  iomux_cb_t cb,
+                                  void *priv);
 
 /**
  * @brief Reset the schedule time on a timed callback.
@@ -93,7 +98,11 @@ iomux_timeout_id_t iomux_schedule(iomux_t *iomux, struct timeval *timeout, iomux
  *
  * @note If the timed callback is not found it is added.
  */
-iomux_timeout_id_t iomux_reschedule(iomux_t *iomux, iomux_timeout_id_t id, struct timeval *timeout, iomux_cb_t cb, void *priv);
+iomux_timeout_id_t iomux_reschedule(iomux_t *iomux,
+                                    iomux_timeout_id_t id,
+                                    struct timeval *timeout,
+                                    iomux_cb_t cb,
+                                    void *priv);
 
 /**
  * @brief Unregister a specific timeout callback.
@@ -153,22 +162,24 @@ void iomux_loop_end_cb(iomux_t *iomux, iomux_cb_t cb, void *priv);
 void iomux_hangup_cb(iomux_t *iomux, iomux_cb_t cb, void *priv);
 
 /**
- * @brief Take over the runloop and handle timeouthandlers while running the mux.
+ * @brief Take over the runloop and handle timers while running the mux.
  * @param iomux A valid iomux handler
- * @param timeout The maximum amount of time that iomux_loop() can spend waiting for
- *                activity before checking for the end-of-loop and the hangup conditions
- * @note If there is activity on a monitored filedescriptor or some timer has fired,
- *        the end-of-loop and hangup conditions might be checked before the whole
- *        timeout has passed.
+ * @param timeout The maximum amount of time that iomux_loop() can spend waiting
+ *                for activity before checking for the end-of-loop and the
+ *                hangup conditions
+ * @note If there is activity on a monitored filedescriptor or some timer has
+ *       fired, the end-of-loop and hangup conditions might be checked before
+ *       the whole timeout has passed.
  * @note Before returning the end_loop callback (if anyw) will be called
  */
 void iomux_loop(iomux_t *iomux, struct timeval *timeout);
 
 /**
- * @brief Stop a running mux and return control back to the iomux_loop() caller
+ * @brief Stop a running mux and return control back to the
+ *        iomux_loop() caller
  * @param iomux A valid iomux handler
- * @note If an end_loop callback is registered, it will be called by iomux_loop() just
- *       before returning to the caller.
+ * @note If an end_loop callback is registered, it will be called by
+ *       iomux_loop() just before returning to the caller.
  */
 void iomux_end_loop(iomux_t *iomux);
 
@@ -213,15 +224,57 @@ void iomux_destroy(iomux_t *iomux);
  */
 int iomux_isempty(iomux_t *iomux);
 
+/**
+ * @brief Get the available write buffer size for the given fd
+ * @param iomux A valid iomux handler
+ * @param fd The filedescriptor for which to check the available write buffer
+ *           size
+ * @return The available size (in bytes), -1 if the filedescriptor is unknown
+ *         to the mux
+ */
 int iomux_write_buffer(iomux_t *iomux, int fd);
 
+/**
+ * @brief Return the callbacks descriptor for the given fd
+ * @param iomux A valid iomux handler
+ * @param fd The filedescriptor for which to return the callbacks descriptor
+ * @return A pointer to the iomux_callbacks_t structure holding the callbacks
+ *         registered for the given fd
+ * @note The caller can change the pointers unregistering existing callbacks
+ *       or registering new ones.
+ */
 iomux_callbacks_t *iomux_callbacks(iomux_t *iomux, int fd);
 
+#ifndef NO_PTHREAD
 typedef struct __iomtee_s iomtee_t;
 
+/**
+ * @brief Open a new multi-tee
+ * @param vfd If not null, the value of the tee filedescriptor will be stored
+ *            at the memory pointed by vfd
+ * @param num_fds The number of filedescriptors which will receive everything
+ *                being written to vfd
+ * @return A multi-tee handler
+ */
 iomtee_t *iomtee_open(int *vfd, int num_fds, ...);
+/**
+ * @brief Get the multi-tee filedescriptor
+ *
+ * The returned filedescriptor can be used for write operations which need
+ * to be multiplexed to the filedescriptors registered at iomtee_open()
+ *
+ * @param tee A valid multi-tee handler
+ * @return the multi-tee filedescriptor to use for write operations
+ * @note The same filedescriptor is stored in the 'vfd' parameter in 
+ *       iomtee_open()
+ */
 int iomtee_fd(iomtee_t *tee);
+/**
+ * @brief Close the multi-tee and dispose all resources
+ * @param tee A valid multi-tee handler
+ */
 void iomtee_close(iomtee_t *tee);
+#endif
 
 #ifdef __cplusplus
 }

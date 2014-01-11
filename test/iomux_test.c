@@ -314,6 +314,7 @@ main(int argc, char **argv)
     close(server);
     close(client);
 
+#ifndef NO_PTHREAD
 
     int count = 0;
 
@@ -360,6 +361,7 @@ main(int argc, char **argv)
     iomtee_close(tee);
     close(server);
     close(client2);
+#endif
 
     t_summary();
 
