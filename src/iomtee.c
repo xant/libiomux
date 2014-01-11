@@ -37,9 +37,9 @@ static int iomtee_write_buffer(iomtee_t *tee, void *data, int len)
             min_rofx = tee->fds[i].rofx;
     }
 
-    int free_space = abs(tee->wofx - min_rofx);
+    int free_space = abs(tee->wofx - min_rofx)+1;
     int write_len = free_space > len ? len : free_space;
-    if (tee->wofx < min_rofx) {
+    if (tee->wofx <= min_rofx) {
         memcpy(&tee->buf[tee->wofx], data, write_len);
         tee->wofx += write_len;
     } else {
