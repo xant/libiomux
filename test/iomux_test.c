@@ -336,7 +336,7 @@ main(int argc, char **argv)
     int client2 = open_connection("localhost", TEST_SERVER_PORT, 5);
 
     int tee_fd;
-    t_testing("iomtee_open(client, client2, &tee_dd)");
+    t_testing("iomtee_open(&tee_fd, 2, client, client2)");
     iomtee_t *tee = iomtee_open(&tee_fd, 2, client, client2);
     t_validate_int((tee_fd >= 0), 1);
 
