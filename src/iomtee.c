@@ -26,6 +26,7 @@ struct __iomtee_s {
     int blen;
     int pipe[2];
     pthread_t th;
+    pthread_mutex_t lock;
 };
 
 static int iomtee_write_buffer(iomtee_t *tee, void *data, int len)
@@ -131,6 +132,7 @@ static void iomtee_eof(iomux_t *iomux, int fd, void *priv)
         return;
     }
 
+
     iomtee_fd_t *tfd, *tmp;
     TAILQ_FOREACH_SAFE(tfd, &tee->fds, next, tmp) {
         if (tfd->fd == fd) {
@@ -143,13 +145,16 @@ static void iomtee_eof(iomux_t *iomux, int fd, void *priv)
     if (!TAILQ_FIRST(&tee->fds))
         iomux_end_loop(iomux);
 
+
 }
 
 static void *tee_run(void *arg) {
     struct timeval tv = { 0, 50000 };
     iomtee_t *tee = (iomtee_t *)arg;
     for (;;) {
+        pthread_mutex_lock(&tee->lock);
         iomux_run(tee->iomux, &tv);
+        pthread_mutex_unlock(&tee->lock);
         pthread_testcancel();
     }
     return NULL;
@@ -193,6 +198,8 @@ iomtee_t *iomtee_open(int *vfd, int num_fds, ...)
     }
     va_end(ap);
 
+    pthread_mutex_init(&tee->lock, NULL);
+
     if (pthread_create(&tee->th, NULL, tee_run, tee) != 0) {
         // TODO - Error Messages
         close(tee->pipe[0]);
@@ -212,6 +219,34 @@ int iomtee_fd(iomtee_t *tee)
     return tee->pipe[1];
 }
 
+void iomtee_add_fd(iomtee_t *tee, int fd)
+{
+    iomux_callbacks_t ocbs = {
+        .mux_eof = iomtee_eof,
+        .priv = tee
+    };
+    pthread_mutex_lock(&tee->lock);
+    iomtee_fd_t *tfd = calloc(1, sizeof(iomtee_fd_t));
+    tfd->fd = fd;
+    TAILQ_INSERT_TAIL(&tee->fds, tfd, next);
+    iomux_add(tee->iomux, tfd->fd, &ocbs);
+    pthread_mutex_unlock(&tee->lock);
+}
+
+void iomtee_remove_fd(iomtee_t *tee, int fd)
+{
+    pthread_mutex_lock(&tee->lock);
+    iomtee_fd_t *tfd, *tmp;
+    TAILQ_FOREACH_SAFE(tfd, &tee->fds, next, tmp) {
+        if (tfd->fd == fd) {
+            TAILQ_REMOVE(&tee->fds, tfd, next);
+            iomux_remove(tee->iomux, fd);
+            break;
+        }
+    }
+    pthread_mutex_unlock(&tee->lock);
+}
+
 void iomtee_close(iomtee_t *tee)
 {
     pthread_cancel(tee->th);
@@ -224,6 +259,7 @@ void iomtee_close(iomtee_t *tee)
         TAILQ_REMOVE(&tee->fds, tfd, next);
         free(tfd);
     }
+    pthread_mutex_destroy(&tee->lock);
     free(tee);
 }
 

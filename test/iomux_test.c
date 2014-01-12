@@ -357,6 +357,18 @@ main(int argc, char **argv)
     iomux_loop(mux, &tv);
     t_validate_int(count, 3);
 
+    int pfd[2];
+    pipe(pfd);
+    iomtee_add_fd(tee, pfd[1]);
+    write(tee_fd, "TEST", 4);
+    char buf[4];
+    int rb = read(pfd[0], buf, 4);
+    t_testing("iomtee: dynamically added fd receives bytes");
+    t_validate_int(rb, 4);
+    t_testing("iomtee: dynamically added fd receives the correct bytes");
+    t_validate_buffer(buf, rb, "TEST", 4);
+    close(pfd[0]);
+    close(pfd[1]);
     iomux_destroy(mux);
     iomtee_close(tee);
     close(server);

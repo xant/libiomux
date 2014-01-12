@@ -274,6 +274,11 @@ int iomtee_fd(iomtee_t *tee);
  * @param tee A valid multi-tee handler
  */
 void iomtee_close(iomtee_t *tee);
+
+void iomtee_add_fd(iomtee_t *tee, int fd);
+
+void iomtee_remove_fd(iomtee_t *tee, int fd);
+
 #endif
 
 #ifdef __cplusplus
