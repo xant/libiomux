@@ -35,8 +35,9 @@
 
 #include "iomux.h"
 
-#define IOMUX_CONNECTIONS_MAX 65535
-#define IOMUX_CONNECTION_BUFSIZE 65535
+#define IOMUX_CONNECTIONS_MAX (1<<16)
+// 1MB default connection bufsize
+#define IOMUX_CONNECTION_BUFSIZE (1<<16)
 #define IOMUX_CONNECTION_SERVER (1)
 
 int iomux_hangup = 0;
