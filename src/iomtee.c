@@ -169,6 +169,7 @@ iomtee_t *iomtee_open(int *vfd, int num_fds, ...)
         fprintf(stderr, "Can't create pipe : %s\n", strerror(errno));
         iomux_destroy(tee->iomux);
         free(tee);
+        return NULL;
     }
 
     iomux_callbacks_t icbs = {
