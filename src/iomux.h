@@ -218,6 +218,12 @@ void iomux_close(iomux_t *iomux, int fd);
 void iomux_destroy(iomux_t *iomux);
 
 /**
+ * @brief Clear the iomux by removing all filedescriptors and timeouts
+ * @param iomux A valid iomux handler
+ */
+void iomux_clear(iomux_t *iomux);
+
+/**
  * @brief Checks if there is any managed filedescriptor in the iomux instance
  * @param iomux A valid iomux handler
  * @returns TRUE if success; FALSE otherwise

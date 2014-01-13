@@ -893,21 +893,35 @@ int iomux_write_buffer(iomux_t *iomux, int fd)
 void
 iomux_destroy(iomux_t *iomux)
 {
+    iomux_clear(iomux);
+    free(iomux);
+}
+
+void
+iomux_clear(iomux_t *iomux)
+{
     int fd;
+    iomux_timeout_t *timeout, *timeout_tmp;
 
     for (fd = iomux->maxfd; fd >= iomux->minfd; fd--)
         if (iomux->connections[fd])
             iomux_close(iomux, fd);
 
-    free(iomux);
+    TAILQ_FOREACH_SAFE(timeout, &iomux->timeouts, timeout_list, timeout_tmp) {
+#if defined(HAVE_EPOLL)
+        iomux->timeouts_fd[timeout->timerfd] = NULL;
+        close(timeout->timerfd);
+#endif
+        TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
+        free(timeout);
+    }
 }
 
-
-iomux_callbacks_t *iomux_callbacks(iomux_t *iomux, int fd)
+iomux_callbacks_t *
+iomux_callbacks(iomux_t *iomux, int fd)
 {
     if (iomux->connections[fd])
         return &iomux->connections[fd]->cbs;
     return NULL;
 }
-
 
