@@ -894,6 +894,11 @@ void
 iomux_destroy(iomux_t *iomux)
 {
     iomux_clear(iomux);
+#if defined(HAVE_EPOLL)
+    close(iomux->efd);
+#elif defined(HAVE_KQUEUE)
+    close(iomux->kfd);
+#endif
     free(iomux);
 }
 
