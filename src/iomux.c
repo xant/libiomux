@@ -625,10 +625,6 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 continue;
             }
 
-            if (event->flags & EV_EOF) {
-                iomux_close(iomux, fd);
-                continue;
-            }
             if (event->filter == EVFILT_READ) {
                 if ((iomux->connections[fd]->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER) && event->data) {
                     while(event->data--)
@@ -636,6 +632,11 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 } else {
                     iomux_read_fd(iomux, fd);
                 }
+            }
+
+            if (event->flags & EV_EOF) {
+                iomux_close(iomux, fd);
+                continue;
             }
 
             if (event->filter == EVFILT_WRITE) {
