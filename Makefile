@@ -33,12 +33,14 @@ TEST_EXEC_ORDER =  iomux_test
 
 all: objects static shared
 
+.PHONY: static
 static: objects
 	ar -r libiomux.a src/*.o
 
 shared: objects
 	$(CC) $(LDFLAGS) $(SHAREDFLAGS) src/*.o -o libiomux.$(SHAREDEXT)
 
+.PHONY: objects
 objects: CFLAGS += -fPIC -Isrc -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -g -O3
 objects: $(TARGETS)
 
