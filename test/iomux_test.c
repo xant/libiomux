@@ -392,5 +392,5 @@ main(int argc, char **argv)
 
     t_summary();
 
-    exit(0);
+    exit(t_failed);
 }
