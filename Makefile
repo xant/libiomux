@@ -39,7 +39,7 @@ static: objects
 shared: objects
 	$(CC) $(LDFLAGS) $(SHAREDFLAGS) src/*.o -o libiomux.$(SHAREDEXT)
 
-objects: CFLAGS += -fPIC -Isrc -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -O3
+objects: CFLAGS += -fPIC -Isrc -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -g -O3
 objects: $(TARGETS)
 
 clean:
@@ -48,7 +48,8 @@ clean:
 	rm -f libiomux.a
 	rm -f libiomux.$(SHAREDEXT)
 
-tests: CFLAGS += -Isrc -Isupport -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -O3
+.PHONY: tests
+tests: CFLAGS += -Isrc -Isupport -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -g -O3
 tests: support/testing.o static
 	@for i in $(TESTS); do\
 	  echo "$(CC) $(CFLAGS) $$i.c -o $$i libiomux.a $(LDFLAGS) -lm";\
@@ -56,6 +57,8 @@ tests: support/testing.o static
 	done;\
 	for i in $(TEST_EXEC_ORDER); do echo; test/$$i; echo; done
 
+.PHONY: test
+test: tests
 
 install:
 	 @echo "Installing libraries in $(LIBDIR)"; \
