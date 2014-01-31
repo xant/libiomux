@@ -231,12 +231,16 @@ iomux_remove(iomux_t *iomux, int fd)
     iomux->connections[fd] = NULL;
 
     if (iomux->maxfd == fd)
-        while (iomux->maxfd >= 0 && !iomux->connections[iomux->maxfd])
+        while (iomux->maxfd > 0 && !iomux->connections[iomux->maxfd])
             iomux->maxfd--;
 
-    if (iomux->minfd == fd)
-        while (iomux->minfd != iomux->maxfd && !iomux->connections[iomux->minfd])
-            iomux->minfd++;
+    if (iomux->minfd == fd) {
+        if (iomux->minfd < iomux->maxfd)
+            while (iomux->minfd != iomux->maxfd && !iomux->connections[iomux->minfd])
+                iomux->minfd++;
+        else
+            iomux->minfd = iomux->maxfd;
+    }
 }
 
 iomux_timeout_id_t
@@ -661,8 +665,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     int n = epoll_wait(iomux->efd, iomux->events, num_fds, epoll_waiting_time);
     int i;
     for (i = 0; i < n; i++) {
-        if (
-            (iomux->events[i].events & EPOLLHUP))
+        if ((iomux->events[i].events & EPOLLHUP))
         {
             iomux_close(iomux, iomux->events[i].data.fd);
             continue;
