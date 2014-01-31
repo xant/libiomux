@@ -341,8 +341,11 @@ main(int argc, char **argv)
     iomtee_t *tee = iomtee_open(&tee_fd, 2, client, client2);
     t_validate_int((tee_fd >= 0), 1);
 
-    write(tee_fd, "CIAO", 4);
-
+    int rc = write(tee_fd, "CIAO", 4);
+    if (rc != 4) {
+        printf("Can't write to tee_fd: %s\n", strerror(errno));
+        exit(-1);
+    }
     t_testing("write(tee_fd, \"CIAO\", 4)");
 
     iomux_loop(mux, &tv);
@@ -353,14 +356,26 @@ main(int argc, char **argv)
     // closing one of the endpoints, the tee still works 
     // but this time only one receiver will be notified
     close(client);
-    write(tee_fd, "CIAO", 4);
+    rc = write(tee_fd, "CIAO", 4);
+    if (rc != 4) {
+        printf("Can't write to tee_fd: %s\n", strerror(errno));
+        exit(-1);
+    }
     iomux_loop(mux, &tv);
     t_validate_int(count, 3);
 
     int pfd[2];
-    pipe(pfd);
+    rc = pipe(pfd);
+    if (rc != 0) {
+        printf("Can't create pipe: %s\n", strerror(errno));
+        exit(-1);
+    }
     iomtee_add_fd(tee, pfd[1]);
-    write(tee_fd, "TEST", 4);
+    rc = write(tee_fd, "TEST", 4);
+    if (rc != 4) {
+        printf("Can't write to tee_fd: %s\n", strerror(errno));
+        exit(-1);
+    }
     char buf[4];
     int rb = read(pfd[0], buf, 4);
     t_testing("iomtee: dynamically added fd receives bytes");
