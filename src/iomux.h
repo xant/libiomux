@@ -45,6 +45,8 @@ typedef struct __iomux_callbacks {
  */
 iomux_t *iomux_create(void);
 
+void iomux_set_threadsafe(iomux_t *iomux, int threadsafe);
+
 /**
  * @brief Add a filedescriptor to the mux
  * @param iomux A valid iomux handler
