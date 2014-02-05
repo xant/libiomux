@@ -993,6 +993,10 @@ iomux_destroy(iomux_t *iomux)
 #elif defined(HAVE_KQUEUE)
     close(iomux->kfd);
 #endif
+    if (iomux->lock) {
+        pthread_mutex_destroy(iomux->lock);
+        free(iomux->lock);
+    }
     free(iomux);
 }
 
