@@ -23,9 +23,11 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <libgen.h>
+
 #include "iomux.h"
 
-#include "testing.h"
+#include "ut.h"
 
 #define TEST_STRING "CIAO"
 #define TEST_SERVER_PORT   6543
@@ -198,18 +200,18 @@ void test_input(iomux_t *mux, int fd, void *data, int len, void *priv)
     struct timeval tv = { 0, 5000 };
 
     if (len != strlen(TEST_STRING)) {
-        t_failure("len %d should %d", len, strlen(TEST_STRING));
+        ut_failure("len %d should %d", len, strlen(TEST_STRING));
     } else {
-        t_validate_buffer(data, len, TEST_STRING, len);
-        t_testing("iomux_set_timeout(mux, server=%d, tv={ 0, 5000 })", server);
-        t_validate_int(iomux_set_timeout(mux, server, &tv), 1);
+        ut_validate_buffer(data, len, TEST_STRING, len);
+        ut_testing("iomux_set_timeout(mux, server=%d, tv={ 0, 5000 })", server);
+        ut_validate_int(iomux_set_timeout(mux, server, &tv), 1);
     }
 }
 
 void test_timeout(iomux_t *mux, int fd, void *priv)
 {
     //struct timeval tv = { 1, 0 };
-    t_testing("iomux_end_loop(mux)");
+    ut_testing("iomux_end_loop(mux)");
     iomux_end_loop(mux);
 }
 
@@ -227,20 +229,20 @@ void test_connection(iomux_t *mux, int fd, void *priv)
 
 static void loop_end(iomux_t *mux, void *priv)
 {
-    t_success();
+    ut_success();
 }
 
 static void loop_hangup(iomux_t *mux, void *priv)
 {
-    t_success();
-    t_testing("iomux_loop_end() callback");
+    ut_success();
+    ut_testing("iomux_loop_end() callback");
     iomux_end_loop(mux);
 }
 
 static void loop_next(iomux_t *mux, void *priv)
 {
-    t_success();
-    t_testing("iomux_hangup() callback");
+    ut_success();
+    ut_testing("iomux_hangup() callback");
     iomux_hangup = 1;
 }
 
@@ -264,47 +266,47 @@ main(int argc, char **argv)
 {
     iomux_t *mux;
 
-    t_init();
+    ut_init(basename(argv[0]));
      
-    t_testing("iomux_create()");
+    ut_testing("iomux_create()");
     mux = iomux_create();
     if (mux)
-        t_success();
+        ut_success();
     else
-        t_failure("returned NULL");
+        ut_failure("returned NULL");
 
-    t_testing("opening server socket");
+    ut_testing("opening server socket");
     server = open_socket("localhost", TEST_SERVER_PORT);
     if (!server) 
-        t_failure("Error : %s\n", strerror(errno));
+        ut_failure("Error : %s\n", strerror(errno));
     else
-        t_success();
-    t_testing("iomux_add(mux, server=%d)", server);
-    t_validate_int(iomux_add(mux, server, &callbacks), 1);
+        ut_success();
+    ut_testing("iomux_add(mux, server=%d)", server);
+    ut_validate_int(iomux_add(mux, server, &callbacks), 1);
     if (!iomux_listen(mux, server))
         exit(-1);
 
-    t_testing("opening client connection");
+    ut_testing("opening client connection");
     client = open_connection("localhost", TEST_SERVER_PORT, 5);
     if (!client) 
-        t_failure("Error : %s\n", strerror(errno));
+        ut_failure("Error : %s\n", strerror(errno));
     else
-        t_success();
-    t_testing("iomux_add(mux, client=%d)", client);
-    t_validate_int(iomux_add(mux, client, &callbacks), 1);
+        ut_success();
+    ut_testing("iomux_add(mux, client=%d)", client);
+    ut_validate_int(iomux_add(mux, client, &callbacks), 1);
 
-    t_testing("iomux_write(mux, client, %s, %d)", TEST_STRING, strlen(TEST_STRING));
-    t_validate_int(iomux_write(mux, client, TEST_STRING, strlen(TEST_STRING)), strlen(TEST_STRING));
+    ut_testing("iomux_write(mux, client, %s, %d)", TEST_STRING, strlen(TEST_STRING));
+    ut_validate_int(iomux_write(mux, client, TEST_STRING, strlen(TEST_STRING)), strlen(TEST_STRING));
 
-    t_testing("iomux_input_callback() callback");
+    ut_testing("iomux_input_callback() callback");
     iomux_loop(mux, NULL);
-    t_success();
+    ut_success();
 
     iomux_loop_next_cb(mux, loop_next, NULL);
     iomux_loop_end_cb(mux, loop_end, NULL);
     iomux_hangup_cb(mux, loop_hangup, NULL);
 
-    t_testing("iomux_loop_next() callback");
+    ut_testing("iomux_loop_next() callback");
 
     struct timeval tv = { 0, 5000 };
     iomux_loop(mux, &tv);
@@ -337,22 +339,22 @@ main(int argc, char **argv)
     int client2 = open_connection("localhost", TEST_SERVER_PORT, 5);
 
     int tee_fd;
-    t_testing("iomtee_open(&tee_fd, 2, client, client2)");
+    ut_testing("iomtee_open(&tee_fd, 2, client, client2)");
     iomtee_t *tee = iomtee_open(&tee_fd, 2, client, client2);
-    t_validate_int((tee_fd >= 0), 1);
+    ut_validate_int((tee_fd >= 0), 1);
 
     int rc = write(tee_fd, "CIAO", 4);
     if (rc != 4) {
         printf("Can't write to tee_fd: %s\n", strerror(errno));
         exit(-1);
     }
-    t_testing("write(tee_fd, \"CIAO\", 4)");
+    ut_testing("write(tee_fd, \"CIAO\", 4)");
 
     iomux_loop(mux, &tv);
 
-    t_validate_int(count, 2);
+    ut_validate_int(count, 2);
 
-    t_testing("close(client); write(tee_fd, \"CIAO\", 4)");
+    ut_testing("close(client); write(tee_fd, \"CIAO\", 4)");
     // closing one of the endpoints, the tee still works 
     // but this time only one receiver will be notified
     close(client);
@@ -362,7 +364,7 @@ main(int argc, char **argv)
         exit(-1);
     }
     iomux_loop(mux, &tv);
-    t_validate_int(count, 3);
+    ut_validate_int(count, 3);
 
     int pfd[2];
     rc = pipe(pfd);
@@ -378,10 +380,10 @@ main(int argc, char **argv)
     }
     char buf[4];
     int rb = read(pfd[0], buf, 4);
-    t_testing("iomtee: dynamically added fd receives bytes");
-    t_validate_int(rb, 4);
-    t_testing("iomtee: dynamically added fd receives the correct bytes");
-    t_validate_buffer(buf, rb, "TEST", 4);
+    ut_testing("iomtee: dynamically added fd receives bytes");
+    ut_validate_int(rb, 4);
+    ut_testing("iomtee: dynamically added fd receives the correct bytes");
+    ut_validate_buffer(buf, rb, "TEST", 4);
     iomux_destroy(mux);
     iomtee_close(tee);
     close(pfd[0]);
@@ -390,7 +392,7 @@ main(int argc, char **argv)
     close(client2);
 #endif
 
-    t_summary();
+    ut_summary();
 
-    exit(t_failed);
+    exit(ut_failed);
 }
