@@ -382,10 +382,10 @@ main(int argc, char **argv)
     t_validate_int(rb, 4);
     t_testing("iomtee: dynamically added fd receives the correct bytes");
     t_validate_buffer(buf, rb, "TEST", 4);
-    close(pfd[0]);
-    close(pfd[1]);
     iomux_destroy(mux);
     iomtee_close(tee);
+    close(pfd[0]);
+    close(pfd[1]);
     close(server);
     close(client2);
 #endif
