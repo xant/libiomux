@@ -813,8 +813,15 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
     struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
 
+    // NOTE: some select() implementations update the timeout with
+    //       the unslept time (possibly 0 if no events happened)
+    //       and we don't want to modify the timeout provided to us
+    //       as argument, hence we make a copy here and we pass the
+    //       copy to select()
+    struct timeval tv_select = { tv->tv_sec, tv->tv_usec };
+
     MUTEX_UNLOCK(iomux);
-    int rc = select(maxfd+1, &rin, &rout, NULL, tv);
+    int rc = select(maxfd+1, &rin, &rout, NULL, &tv_select);
     MUTEX_LOCK(iomux);
     switch (rc) {
     case -1:
@@ -823,7 +830,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         if (errno == EAGAIN)
             return;
         else if (errno == EBADF) {
-            // there is some bad filedescriptor amont the managed ones
+            // there is some bad filedescriptor among the managed ones
             // probably the user called close() on the filedescriptor
             // without informing the iomux
             for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
