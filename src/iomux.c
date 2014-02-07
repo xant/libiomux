@@ -818,14 +818,13 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     //       copy to select()
     struct timeval tv_select = { 0, 0 };
 
-    if (tv_default) {
-        // shrink the timeout if we have timers expiring earlier
-        struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
+    // shrink the timeout if we have timers expiring earlier
+    struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
+    if (tv)
         memcpy(&tv_select, tv, sizeof(tv_select));
-    }
 
     MUTEX_UNLOCK(iomux);
-    int rc = select(maxfd+1, &rin, &rout, NULL, tv_default ? &tv_select : NULL);
+    int rc = select(maxfd+1, &rin, &rout, NULL, tv ? &tv_select : NULL);
     MUTEX_LOCK(iomux);
     switch (rc) {
     case -1:
