@@ -811,17 +811,21 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         }
     }
 
-    struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
-
     // NOTE: some select() implementations update the timeout with
     //       the unslept time (possibly 0 if no events happened)
     //       and we don't want to modify the timeout provided to us
     //       as argument, hence we make a copy here and we pass the
     //       copy to select()
-    struct timeval tv_select = { tv->tv_sec, tv->tv_usec };
+    struct timeval tv_select = { 0, 0 };
+
+    if (tv_default) {
+        // shrink the timeout if we have timers expiring earlier
+        struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
+        memcpy(&tv_select, tv, sizeof(tv_select));
+    }
 
     MUTEX_UNLOCK(iomux);
-    int rc = select(maxfd+1, &rin, &rout, NULL, &tv_select);
+    int rc = select(maxfd+1, &rin, &rout, NULL, tv_default ? &tv_select : NULL);
     MUTEX_LOCK(iomux);
     switch (rc) {
     case -1:
@@ -870,13 +874,14 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 #endif
 
 void
-iomux_loop(iomux_t *iomux, struct timeval *tv_default)
+iomux_loop(iomux_t *iomux, struct timeval *tv)
 {
+    struct timeval tv_default = { 0, 20000 };
     while (!iomux->leave) {
         if (iomux->loop_next_cb)
             iomux->loop_next_cb(iomux, iomux->loop_end_priv);
 
-        iomux_run(iomux, tv_default);
+        iomux_run(iomux, tv ? tv : &tv_default);
 
         if (iomux_hangup && iomux->hangup_cb)
             iomux->hangup_cb(iomux, iomux->hangup_priv);
