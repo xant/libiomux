@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <stdarg.h>
 #include <pthread.h>
+
 #include "bsd_queue.h"
 #include "iomux.h"
 
@@ -26,7 +27,6 @@ struct __iomtee_s {
     int blen;
     int pipe[2];
     pthread_t th;
-    pthread_mutex_t lock;
 };
 
 static int iomtee_write_buffer(iomtee_t *tee, void *data, int len)
@@ -152,9 +152,7 @@ static void *tee_run(void *arg) {
     struct timeval tv = { 0, 50000 };
     iomtee_t *tee = (iomtee_t *)arg;
     for (;;) {
-        pthread_mutex_lock(&tee->lock);
         iomux_run(tee->iomux, &tv);
-        pthread_mutex_unlock(&tee->lock);
         pthread_testcancel();
     }
     return NULL;
@@ -164,6 +162,7 @@ iomtee_t *iomtee_open(int *vfd, int num_fds, ...)
 {
     iomtee_t *tee = calloc(1, sizeof(iomtee_t));
     tee->iomux = iomux_create();
+    iomux_set_threadsafe(tee->iomux, 1);
     int rc = pipe(tee->pipe);
     if (rc != 0) {
         fprintf(stderr, "Can't create pipe : %s\n", strerror(errno));
@@ -199,8 +198,6 @@ iomtee_t *iomtee_open(int *vfd, int num_fds, ...)
     }
     va_end(ap);
 
-    pthread_mutex_init(&tee->lock, NULL);
-
     if (pthread_create(&tee->th, NULL, tee_run, tee) != 0) {
         // TODO - Error Messages
         close(tee->pipe[0]);
@@ -226,17 +223,14 @@ void iomtee_add_fd(iomtee_t *tee, int fd)
         .mux_eof = iomtee_eof,
         .priv = tee
     };
-    pthread_mutex_lock(&tee->lock);
     iomtee_fd_t *tfd = calloc(1, sizeof(iomtee_fd_t));
     tfd->fd = fd;
     TAILQ_INSERT_TAIL(&tee->fds, tfd, next);
     iomux_add(tee->iomux, tfd->fd, &ocbs);
-    pthread_mutex_unlock(&tee->lock);
 }
 
 void iomtee_remove_fd(iomtee_t *tee, int fd)
 {
-    pthread_mutex_lock(&tee->lock);
     iomtee_fd_t *tfd, *tmp;
     TAILQ_FOREACH_SAFE(tfd, &tee->fds, next, tmp) {
         if (tfd->fd == fd) {
@@ -245,7 +239,6 @@ void iomtee_remove_fd(iomtee_t *tee, int fd)
             break;
         }
     }
-    pthread_mutex_unlock(&tee->lock);
 }
 
 void iomtee_close(iomtee_t *tee)
@@ -260,7 +253,6 @@ void iomtee_close(iomtee_t *tee)
         TAILQ_REMOVE(&tee->fds, tfd, next);
         free(tfd);
     }
-    pthread_mutex_destroy(&tee->lock);
     free(tee);
 }
 
