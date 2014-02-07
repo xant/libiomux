@@ -43,15 +43,17 @@ shared: objects
 .PHONY: objects
 objects: CFLAGS += -fPIC -Isrc -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -g -O3
 objects: 
-	@UNAME=`uname`; \
-	if [ "$$UNAME" = "Darwin" ]; then \
-	    PLATFORM_CFLAGS="-DHAVE_KQUEUE"; \
-	elif [ "$$UNAME" = "Linux" ]; then \
-	    KERNEL_VERSION=`uname -r | cut -d- -f1`; \
-	    MIN_VERSION=2.6.27; \
-	    SMALLER_VERSION=`echo "$$KERNEL_VERSION\n$$MIN_VERSION" | sort -V | head -1`; \
-	    if [ "$$SMALLER_VERSION" = "$$MIN_VERSION" ]; then \
-		PLATFORM_CFLAGS="-DHAVE_EPOLL"; \
+	@if [ "X$$USE_SELECT" = "X" ]; then \
+	    UNAME=`uname`; \
+	    if [ "$$UNAME" = "Darwin" ]; then \
+		PLATFORM_CFLAGS="-DHAVE_KQUEUE"; \
+	    elif [ "$$UNAME" = "Linux" ]; then \
+		KERNEL_VERSION=`uname -r | cut -d- -f1`; \
+		MIN_VERSION=2.6.27; \
+		SMALLER_VERSION=`echo "$$KERNEL_VERSION\n$$MIN_VERSION" | sort -V | head -1`; \
+		if [ "$$SMALLER_VERSION" = "$$MIN_VERSION" ]; then \
+		    PLATFORM_CFLAGS="-DHAVE_EPOLL"; \
+		fi; \
 	    fi; \
 	fi; \
 	for i in $(SOURCES); do \
