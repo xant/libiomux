@@ -26,7 +26,7 @@ endif
 
 
 #CC = gcc
-TARGETS = $(patsubst %.c, %.o, $(wildcard src/*.c))
+SOURCES = $(wildcard src/*.c)
 
 TESTS = $(patsubst %.c, %, $(wildcard test/*.c))
 TEST_EXEC_ORDER =  iomux_test
@@ -42,7 +42,22 @@ shared: objects
 
 .PHONY: objects
 objects: CFLAGS += -fPIC -Isrc -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -g -O3
-objects: $(TARGETS)
+objects: 
+	@UNAME=`uname`; \
+	if [ "$$UNAME" = "Darwin" ]; then \
+	    PLATFORM_CFLAGS="-DHAVE_KQUEUE"; \
+	elif [ "$$UNAME" = "Linux" ]; then \
+	    KERNEL_VERSION=`uname -r | cut -d- -f1`; \
+	    MIN_VERSION=2.6.27; \
+	    SMALLER_VERSION=`echo "$$KERNEL_VERSION\n$$MIN_VERSION" | sort -V | head -1`; \
+	    if [ "$$SMALLER_VERSION" = "$$MIN_VERSION" ]; then \
+		PLATFORM_CFLAGS="-DHAVE_EPOLL"; \
+	    fi; \
+	fi; \
+	for i in $(SOURCES); do \
+	    echo "$(CC) $(CFLAGS) $$PLATFORM_CFLAGS -c $$i -o $${i%.*}.o"; \
+	    $(CC) $(CFLAGS) $$PLATFORM_CFLAGS -c $$i -o $${i%.*}.o; \
+	done
 
 clean:
 	rm -f src/*.o
