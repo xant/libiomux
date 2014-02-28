@@ -828,10 +828,14 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     MUTEX_LOCK(iomux);
     switch (rc) {
     case -1:
-        if (errno == EINTR)
+        if (errno == EINTR) {
+            MUTEX_UNLOCK(iomux);
             return;
-        if (errno == EAGAIN)
+	}
+        if (errno == EAGAIN) {
+            MUTEX_UNLOCK(iomux);
             return;
+	}
         else if (errno == EBADF) {
             // there is some bad filedescriptor among the managed ones
             // probably the user called close() on the filedescriptor
