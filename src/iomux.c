@@ -625,18 +625,10 @@ iomux_run_timeouts(iomux_t *iomux)
     iomux_timeout_t *timeout = NULL;
 
     // run expired timeouts
-    struct timeval diff = { 0, 0 };
-    struct timeval now;
-
-    gettimeofday(&now, NULL);
-    if (iomux->last_timeout_check.tv_sec)
-        timersub(&now, &iomux->last_timeout_check, &diff);
-    else
-        memcpy(&diff, &now, sizeof(now));
 
     iomux_update_timeouts(iomux);
 
-    memset(&diff, 0, sizeof(diff));
+    struct timeval diff = { 0, 0 };
     while ((timeout = TAILQ_FIRST(&iomux->timeouts)) && timercmp(&timeout->wait_time, &diff, <=)) {
         TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
         timeout->cb(iomux, timeout->priv);

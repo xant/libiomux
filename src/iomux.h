@@ -3,6 +3,8 @@
  *
  * @brief I/O multiplexer
  *
+ * @todo Handle timeouts using a priority queue
+ *
  */
 
 #ifndef __IOMUX_H__
