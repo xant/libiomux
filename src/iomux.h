@@ -22,21 +22,27 @@ typedef void (*iomux_cb_t)(iomux_t *iomux, void *priv);
 
 typedef int iomux_timeout_id_t;
 
+typedef void (*iomux_input_callback_t)(iomux_t *iomux, int fd, void *data, int len, void *priv);
+typedef void (*iomux_output_callback_t)(iomux_t *iomux, int fd, void *priv);
+typedef void (*iomux_timeout_callback_t)(iomux_t *iomux, int fd, void *priv);
+typedef void (*iomux_eof_callback_t)(iomux_t *iomux, int fd, void *priv);
+typedef void (*iomux_connection_callback_t)(iomux_t *iomux, int fd, void *priv);
+
 /**
  * @struct iomux_callbacks_t
  * @brief iomux callbacks structure
  */
 typedef struct __iomux_callbacks {
     //! The callback called when there is new data on the monitored fd
-    void (*mux_input)(iomux_t *iomux, int fd, void *data, int len, void *priv);
+    iomux_input_callback_t mux_input;
     //! If not NULL, it will be called when it's possible to write new data on fd 
-    void (*mux_output)(iomux_t *iomux, int fd, void *priv);
+    iomux_output_callback_t mux_output;
     //! If not NULL, it will be called when a timeout on fd expires
-    void (*mux_timeout)(iomux_t *iomux, int fd, void *priv);
+    iomux_timeout_callback_t mux_timeout;
     //! If not NULL, it will be called when EOF is reached and the fd can be closed
-    void (*mux_eof)(iomux_t *iomux, int fd, void *priv);
+    iomux_eof_callback_t mux_eof;
     //! If not NULL and fd is a listening socket, it will be called when a new connection is accepted on fd 
-    void (*mux_connection)(iomux_t *iomux, int fd, void *priv);
+    iomux_connection_callback_t mux_connection;
     //! A pointer to private data which will be passed to all the callbacks as last argument
     void *priv;
 } iomux_callbacks_t;
