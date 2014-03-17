@@ -924,7 +924,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
                 if (FD_ISSET(fd, &rout)) {
                     MUTEX_UNLOCK(iomux);
-                    iomux_write_fd(iomux, fd);
+                    iomux_write_fd(iomux, fd, mux_output, priv);
                     MUTEX_LOCK(iomux);
                 }
             }
