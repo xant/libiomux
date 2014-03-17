@@ -901,7 +901,8 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         break;
     default:
         for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
-            if (iomux->connections[fd]) {
+            iomux_connection_t *conn = iomux->connections[fd];
+            if (conn) {
                 iomux_output_callback_t mux_output = conn->cbs.mux_output;
                 iomux_connection_callback_t mux_connection = conn->cbs.mux_connection;
                 iomux_input_callback_t mux_input = conn->cbs.mux_input;
