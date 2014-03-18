@@ -200,19 +200,19 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
     if (connection) {
 
 #if defined(HAVE_EPOLL)
-        struct epoll_event event = { 0 };
+        struct epoll_event event;
+        bzero(&event, sizeof(event));
         event.data.fd = fd;
         event.events = EPOLLIN;
-        if (connection->cbs.mux_output)
-            event.events = event.events | EPOLLOUT;
-
+        if (cbs->mux_output)
+            event.events |= EPOLLOUT;
         int rc = epoll_ctl(iomux->efd, EPOLL_CTL_ADD, fd, &event);
         if (rc == -1) {
             fprintf(stderr, "Errors adding fd %d to epoll instance %d : %s\n", 
                     fd, iomux->efd, strerror(errno));
             free(connection);
             MUTEX_UNLOCK(iomux);
-            return 0;;
+            return 0;
         }
 
 #elif defined(HAVE_KQUEUE)
@@ -247,7 +247,8 @@ iomux_remove(iomux_t *iomux, int fd)
     MUTEX_LOCK(iomux);
 
 #if defined(HAVE_EPOLL)
-    struct epoll_event event = { 0 };
+    struct epoll_event event;
+    bzero(&event, sizeof(event));
     event.data.fd = fd;
 
     // NOTE: events might be NULL but on linux kernels < 2.6.9 
@@ -555,11 +556,12 @@ iomux_write_fd(iomux_t *iomux, int fd, iomux_output_callback_t mux_output, void 
 
     // note that the fd might have been closed by the mux_output callback
     // so we need to check for its presence again
-    if (!iomux->connections[fd] || !iomux->connections[fd]->outlen) {
+    if (!mux_output && !iomux->connections[fd]->outlen) {
 #if defined(HAVE_EPOLL)
             MUTEX_UNLOCK(iomux);
             // let's unregister this fd from EPOLLOUT events (seems nothing needs to be sent anymore)
-            struct epoll_event event = { 0 };
+            struct epoll_event event;
+            bzero(&event, sizeof(event));
             event.data.fd = fd;
             event.events = EPOLLIN;
 
@@ -766,7 +768,6 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
     int i;
 
-
     for (i = 0; i < n; i++) {
         if ((iomux->events[i].events & EPOLLHUP))
         {
@@ -807,10 +808,21 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 if (!iomux->connections[fd]) // connection has been closed/removed
                     continue;
 
-                if (iomux->events[i].events& EPOLLOUT) {
+                if (iomux->events[i].events & EPOLLOUT) {
                     MUTEX_UNLOCK(iomux);
                     iomux_write_fd(iomux, fd, mux_output, priv);
                     MUTEX_LOCK(iomux);
+                } else if (mux_output) {
+                    struct epoll_event event;
+                    bzero(&event, sizeof(event));
+                    event.data.fd = fd;
+                    event.events = EPOLLIN | EPOLLOUT;
+
+                    int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
+                    if (rc == -1) {
+                        fprintf(stderr, "Errors modifying fd %d to epoll instance %d : %s\n", 
+                                fd, iomux->efd, strerror(errno));
+                    }
                 }
             }
         } else if (timeout) {
@@ -972,7 +984,8 @@ iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
     MUTEX_LOCK(iomux);
     if (wlen) {
 #if defined(HAVE_EPOLL)
-        struct epoll_event event = { 0 };
+        struct epoll_event event;
+        bzero(&event, sizeof(event));
         event.data.fd = fd;
         event.events = EPOLLIN | EPOLLOUT;
 
