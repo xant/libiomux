@@ -583,13 +583,11 @@ iomux_write_fd(iomux_t *iomux, int fd, iomux_output_callback_t mux_output, void 
     MUTEX_UNLOCK(iomux);
 
     int wb = write(fd, outbuf, outlen);
-    if (wb == -1) {
-        if (errno != EINTR || errno != EAGAIN) {
+    if (wb <= 0) {
+        if (errno != EINTR && errno != EAGAIN) {
             fprintf(stderr, "write on fd %d failed: %s\n", fd, strerror(errno));
             iomux_close(iomux, fd);
         }
-    } else if (wb == 0) {
-        iomux_close(iomux, fd);
     } else {
         MUTEX_LOCK(iomux);
         iomux->connections[fd]->outlen -= wb;
