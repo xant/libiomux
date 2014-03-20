@@ -976,10 +976,10 @@ iomux_end_loop(iomux_t *iomux)
 int
 iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
 {
+    MUTEX_LOCK(iomux);
     int free_space = IOMUX_CONNECTION_BUFSIZE-iomux->connections[fd]->outlen;
     int wlen = (len > free_space)?free_space:len;
 
-    MUTEX_LOCK(iomux);
     if (wlen) {
 #if defined(HAVE_EPOLL)
         struct epoll_event event;
