@@ -53,7 +53,8 @@ static int iomtee_write_buffer(iomtee_t *tee, void *data, int len)
     return write_len;
 }
 
-static int iomtee_read_buffer(iomtee_t *tee, iomtee_fd_t *tfd, void *out, int len)
+static int
+iomtee_read_buffer(iomtee_t *tee, iomtee_fd_t *tfd, void *out, int len)
 {
     int free_space = abs(tee->wofx - tfd->rofx);
     int read_len = free_space < len ? free_space : len;
@@ -79,6 +80,7 @@ iomtee_output(iomux_t *iomux,
     iomtee_t *tee = (iomtee_t *)priv;
     iomtee_fd_t *tfd = NULL;
     iomtee_fd_t *iter;
+
     TAILQ_FOREACH(iter, &tee->fds, next) {
         if (iter->fd == fd) {
             tfd = iter;
@@ -88,6 +90,7 @@ iomtee_output(iomux_t *iomux,
 
     if (!tfd) {
         // TODO - Error Messages
+        *len = 0;
         return;
     }
     
@@ -95,7 +98,8 @@ iomtee_output(iomux_t *iomux,
     *len = rb;
 }
 
-static int iomtee_input(iomux_t *iomux, int fd, unsigned char *data, int len, void *priv)
+static int
+iomtee_input(iomux_t *iomux, int fd, unsigned char *data, int len, void *priv)
 {
     iomtee_t *tee = (iomtee_t *)priv;
     int min_write = len;
@@ -120,7 +124,8 @@ static int iomtee_input(iomux_t *iomux, int fd, unsigned char *data, int len, vo
     return len;
 }
 
-static void iomtee_eof(iomux_t *iomux, int fd, void *priv)
+static void
+iomtee_eof(iomux_t *iomux, int fd, void *priv)
 {
     iomtee_t *tee = (iomtee_t *)priv;
 
