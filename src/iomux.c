@@ -832,9 +832,11 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             iomux_close(iomux, iomux->events[i].data.fd);
             continue;
         } else if ((iomux->events[i].events & EPOLLERR)) {
-            fprintf (stderr, "epoll error on fd %d: %s\n",
-                    iomux->events[i].data.fd, strerror(errno));
-            iomux_close(iomux, iomux->events[i].data.fd);
+            if (errno != EINPROGRESS) {
+                fprintf (stderr, "epoll error on fd %d: %s\n",
+                        iomux->events[i].data.fd, strerror(errno));
+                iomux_close(iomux, iomux->events[i].data.fd);
+            }
             continue;
         }
 
