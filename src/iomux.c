@@ -245,8 +245,13 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
 void
 iomux_remove(iomux_t *iomux, int fd)
 {
-    iomux_unschedule(iomux, iomux->connections[fd]->timeout_id);
     MUTEX_LOCK(iomux);
+
+    if (!iomux->connections[fd]) {
+        MUTEX_UNLOCK(iomux);
+        return;
+    }
+    iomux_unschedule(iomux, iomux->connections[fd]->timeout_id);
 
 #if defined(HAVE_EPOLL)
     struct epoll_event event;
