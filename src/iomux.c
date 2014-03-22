@@ -533,7 +533,7 @@ iomux_read_fd(iomux_t *iomux, int fd, iomux_input_callback_t mux_input, void *pr
     MUTEX_LOCK(iomux);
     iomux_connection_t *conn = iomux->connections[fd];
 
-    if (conn->inlen == IOMUX_CONNECTION_BUFSIZE) {
+    if (conn->inlen >= IOMUX_CONNECTION_BUFSIZE) {
         MUTEX_UNLOCK(iomux);
         return;
     }
@@ -553,8 +553,9 @@ iomux_read_fd(iomux_t *iomux, int fd, iomux_input_callback_t mux_input, void *pr
     } else {
         conn->inlen += rb;
          if (mux_input) {
-             unsigned char *buf = conn->inbuf;
              int len = conn->inlen;
+             unsigned char *buf = malloc(len);
+             memcpy(buf, conn->inbuf, len);
              MUTEX_UNLOCK(iomux);
              int mb = mux_input(iomux, fd, buf, len, priv);
              MUTEX_LOCK(iomux);
@@ -562,10 +563,11 @@ iomux_read_fd(iomux_t *iomux, int fd, iomux_input_callback_t mux_input, void *pr
                  if (mb == conn->inlen) {
                      conn->inlen = 0;
                  } else if (mb) {
-                     memmove(conn->inbuf, conn->inbuf + mb, conn->inlen - mb);
+                     memcpy(conn->inbuf, buf + mb, len - mb);
                      conn->inlen -= mb;
                  }
              }
+             free(buf);
          }
     }
     MUTEX_UNLOCK(iomux);
