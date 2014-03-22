@@ -703,7 +703,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                                                   iomux->connections[i]->cbs.priv);
             if (len) {
                 memmove(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
-                iomux->connections[i]->otlen += len;
+                iomux->connections[i]->outlen += len;
                 memcpy(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
                 n += 2;
             }
