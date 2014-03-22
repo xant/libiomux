@@ -22,8 +22,8 @@ typedef void (*iomux_cb_t)(iomux_t *iomux, void *priv);
 
 typedef int iomux_timeout_id_t;
 
-typedef void (*iomux_input_callback_t)(iomux_t *iomux, int fd, void *data, int len, void *priv);
-typedef void (*iomux_output_callback_t)(iomux_t *iomux, int fd, void *priv);
+typedef int (*iomux_input_callback_t)(iomux_t *iomux, int fd, unsigned char *data, int len, void *priv);
+typedef void (*iomux_output_callback_t)(iomux_t *iomux, int fd, unsigned char *data, int *len, void *priv);
 typedef void (*iomux_timeout_callback_t)(iomux_t *iomux, int fd, void *priv);
 typedef void (*iomux_eof_callback_t)(iomux_t *iomux, int fd, void *priv);
 typedef void (*iomux_connection_callback_t)(iomux_t *iomux, int fd, void *priv);
@@ -214,12 +214,14 @@ void iomux_run(iomux_t *iomux, struct timeval *timeout);
  */
 int iomux_write(iomux_t *iomux, int fd, const void *buf, int len);
 
+void iomux_write_set_callback(iomux_t *iomux, int fd, iomux_output_callback_t cb);
+
 /**
  * @brief Close a file handled by the iomux
  * @param iomux A valid iomux handler
  * @param fd The fd to close
  */
-void iomux_close(iomux_t *iomux, int fd);
+int iomux_close(iomux_t *iomux, int fd);
 
 /**
  * @brief Relase all resources used by an iomux

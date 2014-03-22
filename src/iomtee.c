@@ -69,10 +69,14 @@ static int iomtee_read_buffer(iomtee_t *tee, iomtee_fd_t *tfd, void *out, int le
     return read_len;
 }
 
-static void iomtee_output(iomux_t *iomux, int fd, void *priv)
+static void
+iomtee_output(iomux_t *iomux,
+              int fd,
+              unsigned char *out,
+              int *len,
+              void *priv)
 {
     iomtee_t *tee = (iomtee_t *)priv;
-    static char buf[65535];
     iomtee_fd_t *tfd = NULL;
     iomtee_fd_t *iter;
     TAILQ_FOREACH(iter, &tee->fds, next) {
@@ -87,16 +91,11 @@ static void iomtee_output(iomux_t *iomux, int fd, void *priv)
         return;
     }
     
-    int write_buffer_size = iomux_write_buffer(iomux, fd);
-    int rb = iomtee_read_buffer(tee, tfd, buf, write_buffer_size);
-    int wb = iomux_write(iomux, fd, buf, rb);
-    if (wb == rb) {
-        iomux_callbacks_t *cbs = iomux_callbacks(iomux, fd);
-        cbs->mux_output = NULL;
-    }
+    int rb = iomtee_read_buffer(tee, tfd, out, *len);
+    *len = rb;
 }
 
-static void iomtee_input(iomux_t *iomux, int fd, void *data, int len, void *priv)
+static int iomtee_input(iomux_t *iomux, int fd, unsigned char *data, int len, void *priv)
 {
     iomtee_t *tee = (iomtee_t *)priv;
     int min_write = len;
@@ -106,9 +105,6 @@ static void iomtee_input(iomux_t *iomux, int fd, void *data, int len, void *priv
             continue; // skip closed receivers
         int wb = iomux_write(iomux, tee_fd->fd, data, len);
         if (wb < len) {
-            iomux_callbacks_t *cbs = iomux_callbacks(iomux, fd);
-            if (cbs)
-                cbs->mux_output = iomtee_output;
             if (wb < min_write)
                 min_write = wb;
         }
@@ -121,6 +117,7 @@ static void iomtee_input(iomux_t *iomux, int fd, void *data, int len, void *priv
             // TODO - Error Messages
         }
     }
+    return len;
 }
 
 static void iomtee_eof(iomux_t *iomux, int fd, void *priv)
@@ -173,6 +170,7 @@ iomtee_t *iomtee_open(int *vfd, int num_fds, ...)
 
     iomux_callbacks_t icbs = {
         .mux_input = iomtee_input,
+        .mux_output = iomtee_output,
         .mux_eof = iomtee_eof,
         .priv = tee
     };

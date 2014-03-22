@@ -33,7 +33,7 @@
 #define TEST_SERVER_PORT   6543
 #define TEST_CLIENT_PORT   6544
 
-void test_input(iomux_t *mux, int fd, void *data, int len, void *priv);
+int test_input(iomux_t *mux, int fd, unsigned char *data, int len, void *priv);
 void test_timeout(iomux_t *mux, int fd, void *priv);
 //void test_eof(iomux_t *mux, int fd, void *priv);
 void test_connection(iomux_t *mux, int fd, void *priv);
@@ -195,7 +195,7 @@ open_connection(const char *host, int port, unsigned int timeout)
 
 
 
-void test_input(iomux_t *mux, int fd, void *data, int len, void *priv)
+int test_input(iomux_t *mux, int fd, unsigned char *data, int len, void *priv)
 {
     struct timeval tv = { 0, 5000 };
 
@@ -206,6 +206,7 @@ void test_input(iomux_t *mux, int fd, void *data, int len, void *priv)
         ut_testing("iomux_set_timeout(mux, server=%d, tv={ 0, 5000 })", server);
         ut_validate_int(iomux_set_timeout(mux, server, &tv), 1);
     }
+    return len;
 }
 
 void test_timeout(iomux_t *mux, int fd, void *priv)
@@ -252,13 +253,14 @@ void test_mtee_connection(iomux_t *mux, int fd, void *priv)
     iomux_add(mux, fd, cbs);
 }
 
-void test_mtee_input(iomux_t *iomux, int fd, void *data, int len, void *priv)
+int test_mtee_input(iomux_t *iomux, int fd, unsigned char *data, int len, void *priv)
 {
     int *count = (int *)priv;
     if (len == 4 && memcmp(data, "CIAO", 4) == 0)
         (*count)++;
     if (*count >= 2)
         iomux_end_loop(iomux);
+    return len;
 }
 
 int
