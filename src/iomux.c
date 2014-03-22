@@ -561,8 +561,8 @@ iomux_read_fd(iomux_t *iomux, int fd, iomux_input_callback_t mux_input, void *pr
              if (iomux->connections[fd] == conn) {
                  if (mb == conn->inlen) {
                      conn->inlen = 0;
-                 } else {
-                     memcpy(conn->inbuf + mb, conn->inbuf, conn->inlen - mb);
+                 } else if (mb) {
+                     memmove(conn->inbuf, conn->inbuf + mb, conn->inlen - mb);
                      conn->inlen -= mb;
                  }
              }
