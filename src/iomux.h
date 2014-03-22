@@ -321,6 +321,8 @@ int iomux_write_buffer(iomux_t *iomux, int fd);
  */
 iomux_callbacks_t *iomux_callbacks(iomux_t *iomux, int fd);
 
+int iomux_num_fds(iomux_t *iomux);
+
 #ifndef NO_PTHREAD
 typedef struct __iomtee_s iomtee_t;
 

@@ -105,6 +105,8 @@ struct __iomux {
     TAILQ_HEAD(, __iomux_timeout) timeouts;
     int last_timeout_id;
 
+    int num_fds;
+
     pthread_mutex_t *lock;
 };
 
@@ -232,6 +234,7 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
         
         memcpy(&connection->cbs, cbs, sizeof(connection->cbs));
         iomux->connections[fd] = connection;
+        iomux->num_fds++;
         while (!iomux->connections[iomux->minfd] && iomux->minfd != iomux->maxfd)
             iomux->minfd++;
 
@@ -272,6 +275,7 @@ iomux_remove(iomux_t *iomux, int fd)
 #endif
     free(iomux->connections[fd]);
     iomux->connections[fd] = NULL;
+    iomux->num_fds--;
 
     if (iomux->maxfd == fd)
         while (iomux->maxfd > 0 && !iomux->connections[iomux->maxfd])
@@ -828,7 +832,8 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             iomux_close(iomux, iomux->events[i].data.fd);
             continue;
         } else if ((iomux->events[i].events & EPOLLERR)) {
-            fprintf (stderr, "epoll error on fd %d\n", iomux->events[i].data.fd);
+            fprintf (stderr, "epoll error on fd %d: %s\n",
+                    iomux->events[i].data.fd, strerror(errno));
             iomux_close(iomux, iomux->events[i].data.fd);
             continue;
         }
@@ -1162,5 +1167,14 @@ iomux_callbacks(iomux_t *iomux, int fd)
     if (iomux->connections[fd])
         return &iomux->connections[fd]->cbs;
     return NULL;
+}
+
+int iomux_num_fds(iomux_t *iomux)
+{
+    int num_fds = 0;
+    MUTEX_LOCK(iomux);
+    num_fds = iomux->num_fds;
+    MUTEX_UNLOCK(iomux);
+    return num_fds;
 }
 
