@@ -1164,14 +1164,3 @@ iomux_callbacks(iomux_t *iomux, int fd)
     return NULL;
 }
 
-void iomux_write_set_callback(iomux_t *iomux, int fd, iomux_output_callback_t cb)
-{
-    MUTEX_LOCK(iomux);
-    iomux_connection_t *conn = iomux->connections[fd];
-    if (!conn) { // fd is not registered within iomux
-        MUTEX_UNLOCK(iomux);
-        return;
-    }
-    conn->cbs.mux_output = cb;
-    MUTEX_UNLOCK(iomux);
-}

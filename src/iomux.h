@@ -22,10 +22,65 @@ typedef void (*iomux_cb_t)(iomux_t *iomux, void *priv);
 
 typedef int iomux_timeout_id_t;
 
+/**
+ * @brief Handle input coming from a managed filedescriptor
+ * @param iomux The iomux handle
+ * @param fd The fd the timer relates to
+ * @param data the data read from the filedescriptor
+ * @param len the size of the data being provided
+ * @param priv the private pointer registered with the callbacks
+ * @return The number of bytes actually processed by the receiver
+ *         If less than 'len' bytes have been processes (because
+ *         underrun or similar) the remaining data will be kept
+ *         by the iomux and provided back at next call (stopping 
+ *         reading from the filedescriptor if necessary)
+ */
 typedef int (*iomux_input_callback_t)(iomux_t *iomux, int fd, unsigned char *data, int len, void *priv);
+
+/**
+ * @brief Callback called to poll for data to be written to a managed filedescriptor
+ * @param iomux The iomux handle
+ * @param fd The fd the timer relates to
+ * @param data A pointer to where to store data which is available for writing
+ * @param len On input it holds the size of the memory pointed by data;
+ *            On output it MUST be set to the actual size of the data
+ *            copied to the out pointer
+ * @param priv the private pointer registered with the callbacks
+ *
+ * @note If no data is available for writing and hence has been copied
+ *       to the data pointer, the callback MUST ensure setting *len to zero
+ *       so that the iomux doesn't try sending garbage data
+ */
 typedef void (*iomux_output_callback_t)(iomux_t *iomux, int fd, unsigned char *data, int *len, void *priv);
+
+/*
+ * @brief Callback called when a timeout registered using iomux_set_timeout() expires
+ * @param iomux The iomux handle
+ * @param fd The fd the timer relates to
+ * @param priv the private pointer registered with the callbacks
+ */
 typedef void (*iomux_timeout_callback_t)(iomux_t *iomux, int fd, void *priv);
+
+/*
+ * @brief Callback called when the end-of-file is detected on a filedescriptor
+ * @param iomux The iomux handle
+ * @param fd The fd the timer relates to
+ * @param priv the private pointer registered with the callbacks
+ * @note No further activity will be notified on the filedescriptor
+ *       after this event
+ */
 typedef void (*iomux_eof_callback_t)(iomux_t *iomux, int fd, void *priv);
+
+/*
+ * @brief Callback called on a listening fildescriptor when a new connection arrives
+ * @param iomux The iomux handle
+ * @param fd The fd the timer relates to
+ * @param priv the private pointer registered with the callbacks
+ *
+ * @note Only filedescriptor on which the iomux_listen() has been called
+ *       will receive this notification (since the mux will call accept()
+ *       only on those filedescriptors, marked as listening sockets)
+ */
 typedef void (*iomux_connection_callback_t)(iomux_t *iomux, int fd, void *priv);
 
 /**
@@ -53,6 +108,11 @@ typedef struct __iomux_callbacks {
  */
 iomux_t *iomux_create(void);
 
+/**
+ * @brief Enable/Disable thread-safety on a specifi iomux insance
+ *
+ * @note document more
+ */
 void iomux_set_threadsafe(iomux_t *iomux, int threadsafe);
 
 /**
@@ -214,8 +274,6 @@ void iomux_run(iomux_t *iomux, struct timeval *timeout);
  */
 int iomux_write(iomux_t *iomux, int fd, const void *buf, int len);
 
-void iomux_write_set_callback(iomux_t *iomux, int fd, iomux_output_callback_t cb);
-
 /**
  * @brief Close a file handled by the iomux
  * @param iomux A valid iomux handler
@@ -293,8 +351,14 @@ int iomtee_fd(iomtee_t *tee);
  */
 void iomtee_close(iomtee_t *tee);
 
+/**
+ * @brief Add a new filedescriptor to the multi-tee
+ */
 void iomtee_add_fd(iomtee_t *tee, int fd);
 
+/*
+ * @brief Remove a filedescriptor from the multi-tee
+ */
 void iomtee_remove_fd(iomtee_t *tee, int fd);
 
 #endif
