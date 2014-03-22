@@ -699,13 +699,16 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             int maxlen = IOMUX_CONNECTION_BUFSIZE - iomux->connections[i]->outlen;
             unsigned char data[maxlen];
             int len = maxlen;
-            iomux->connections[i]->cbs.mux_output(iomux, fd, &data, &len,
+            iomux->connections[i]->cbs.mux_output(iomux, i, data, &len,
                                                   iomux->connections[i]->cbs.priv);
             if (len) {
                 memmove(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
                 iomux->connections[i]->outlen += len;
                 memcpy(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
                 n += 2;
+            } else {
+                memmove(&iomux->events[n], &iomux->connections[i]->event, sizeof(struct kevent));
+                n++;
             }
         } else if (iomux->connections[i]->outlen) {
             memmove(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
