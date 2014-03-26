@@ -245,14 +245,14 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
     return 0;
 }
 
-void
+int
 iomux_remove(iomux_t *iomux, int fd)
 {
     MUTEX_LOCK(iomux);
 
     if (!iomux->connections[fd]) {
         MUTEX_UNLOCK(iomux);
-        return;
+        return 0;
     }
     iomux_unschedule(iomux, iomux->connections[fd]->timeout_id);
 
@@ -289,6 +289,7 @@ iomux_remove(iomux_t *iomux, int fd)
             iomux->minfd = iomux->maxfd;
     }
     MUTEX_UNLOCK(iomux);
+    return 1;
 }
 
 iomux_timeout_id_t
@@ -1063,7 +1064,7 @@ iomux_close(iomux_t *iomux, int fd)
     iomux_connection_t *conn = iomux->connections[fd];
     if (!conn) { // fd is not registered within iomux
         MUTEX_UNLOCK(iomux);
-        return -1;
+        return 0;
     }
 
     if (fcntl(fd, F_GETFD, 0) != -1 && conn->outlen) { // there is pending data
@@ -1094,7 +1095,7 @@ iomux_close(iomux_t *iomux, int fd)
 
     MUTEX_UNLOCK(iomux);
 
-    return 0;
+    return 1;
 }
 
 int

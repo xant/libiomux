@@ -128,8 +128,9 @@ int  iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs);
  * @brief Remove a filedescriptor from the mux
  * @param iomux A valid iomux handler
  * @param fd The fd to remove
+ * @return TRUE on success; FALSE otherwise
  */
-void iomux_remove(iomux_t *iomux, int fd);
+int iomux_remove(iomux_t *iomux, int fd);
 
 /**
  * @brief Register a timeout on a connection.
@@ -278,6 +279,7 @@ int iomux_write(iomux_t *iomux, int fd, const void *buf, int len);
  * @brief Close a file handled by the iomux
  * @param iomux A valid iomux handler
  * @param fd The fd to close
+ * @return TRUE on success; FALSE otherwise
  */
 int iomux_close(iomux_t *iomux, int fd);
 
