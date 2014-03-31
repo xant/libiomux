@@ -204,7 +204,10 @@ int test_input(iomux_t *mux, int fd, unsigned char *data, int len, void *priv)
     } else {
         ut_validate_buffer(data, len, TEST_STRING, len);
         ut_testing("iomux_set_timeout(mux, server=%d, tv={ 0, 5000 })", server);
-        ut_validate_int(iomux_set_timeout(mux, server, &tv), 1);
+        if (iomux_set_timeout(mux, server, &tv) > 0)
+            ut_success();
+        else
+            ut_failure("iomux_set_timeout() didn't return a valid timeout id");
     }
     return len;
 }

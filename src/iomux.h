@@ -18,7 +18,7 @@ extern int iomux_hangup;
 typedef struct __iomux iomux_t;
 typedef void (*iomux_cb_t)(iomux_t *iomux, void *priv);
 
-typedef int iomux_timeout_id_t;
+typedef uint64_t iomux_timeout_id_t;
 
 /**
  * @brief Handle input coming from a managed filedescriptor

@@ -67,7 +67,7 @@ typedef struct __iomux_connection {
 //! \brief iomux timeout structure
 typedef struct __iomux_timeout {
     iomux_timeout_id_t id;
-    struct timeval wait_time;
+    struct timeval expire_time;
     TAILQ_ENTRY(__iomux_timeout) timeout_list;
     void (*cb)(iomux_t *iomux, void *priv);
     void *priv;
@@ -304,14 +304,14 @@ iomux_schedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
         memcpy(&iomux->last_timeout_check, &now, sizeof(struct timeval));
 
     timeout = (iomux_timeout_t *)calloc(1, sizeof(iomux_timeout_t));
-    timeradd(&now, tv, &timeout->wait_time);
+    timeradd(&now, tv, &timeout->expire_time);
     timeout->cb = cb;
     timeout->priv = priv;
-    timeout->id = ++iomux->last_timeout_id;
+    uint64_t expire =  (timeout->expire_time.tv_sec * 1000) + (timeout->expire_time.tv_usec/1000);
+    timeout->id = (expire << 8) | (++iomux->last_timeout_id % 256);
 
     // keep the list sorted in ascending order
-    uint64_t key =  (timeout->wait_time.tv_sec * 1000) + (timeout->wait_time.tv_usec/1000);
-    bh_insert(iomux->timeouts, key, timeout, sizeof(iomux_timeout_t));
+    bh_insert(iomux->timeouts, timeout->id, timeout, sizeof(iomux_timeout_t));
     MUTEX_UNLOCK(iomux);
     return timeout->id;
 }
@@ -323,40 +323,11 @@ iomux_reschedule(iomux_t *iomux, iomux_timeout_id_t id, struct timeval *tv, iomu
     return iomux_schedule(iomux, tv, cb, priv);
 }
 
-/* TODO - use the iterator instead of creating a new binheap 
- *        to swap with the original one */
-int
-iomux_unschedule_all(iomux_t *iomux, iomux_cb_t cb, void *priv)
-{           
-    iomux_timeout_t *timeout = NULL;
-    int count = 0;
-
-    MUTEX_LOCK(iomux);
-    bh_t *new_heap = bh_create();
-    void *timeout_ptr = NULL;
-    while (bh_delete_minimum(iomux->timeouts, &timeout_ptr, NULL) == 0) {
-        timeout = (iomux_timeout_t *)timeout_ptr;
-        if (cb == timeout->cb && priv == timeout->priv) {
-            free(timeout);
-            count++;
-        } else {
-            uint64_t key =  (timeout->wait_time.tv_sec * 1000) + (timeout->wait_time.tv_usec/1000);
-            bh_insert(new_heap,
-                      key,
-                      timeout,
-                      sizeof(iomux_timeout_t));
-        }
-    }
-    bh_t *old_heap = iomux->timeouts;
-    iomux->timeouts = new_heap;
-    bh_destroy(old_heap);
-    MUTEX_UNLOCK(iomux);
-    return count;
-}
-
 typedef struct {
     iomux_t *iomux;
-    iomux_timeout_id_t timeout_id;
+    iomux_cb_t cb;
+    void *priv;
+    int count;
 } iomux_binheap_iterator_arg_t;
 
 static int
@@ -365,11 +336,25 @@ iomux_binheap_iterator_callback(bh_t *bh, uint64_t key, void *value, size_t vlen
     iomux_binheap_iterator_arg_t *arg = (iomux_binheap_iterator_arg_t *)priv;
     iomux_timeout_t *timeout = (iomux_timeout_t *)value;
 
-    if (arg->timeout_id == timeout->id) {
+    if (arg->cb == timeout->cb && arg->priv == timeout->priv) {
         free(timeout);
-        return 0;
+        arg->count++;
+        return -1;
     }
     return 1;
+}
+
+int
+iomux_unschedule_all(iomux_t *iomux, iomux_cb_t cb, void *priv)
+{
+    MUTEX_LOCK(iomux);
+
+    iomux_binheap_iterator_arg_t arg = { iomux, cb, priv, 0 };
+    bh_foreach(iomux->timeouts, iomux_binheap_iterator_callback, &arg);
+
+    MUTEX_UNLOCK(iomux);
+
+    return arg.count;
 }
 
 int
@@ -379,8 +364,14 @@ iomux_unschedule(iomux_t *iomux, iomux_timeout_id_t id)
         return 0;
 
     MUTEX_LOCK(iomux);
-    iomux_binheap_iterator_arg_t arg = { iomux, id };
-    bh_foreach(iomux->timeouts, iomux_binheap_iterator_callback, &arg);
+    void *timeout_ptr = NULL;
+    if (bh_delete(iomux->timeouts, id, &timeout_ptr, NULL) != 0) {
+        MUTEX_UNLOCK(iomux);
+        return 0;
+    }
+
+    if (timeout_ptr)
+        free(timeout_ptr);
 
     MUTEX_UNLOCK(iomux);
     return 1;
@@ -603,7 +594,7 @@ iomux_adjust_timeout(iomux_t *iomux, struct timeval *tv_default)
     struct timeval wait_time = { 0, 0 };
     struct timeval now;
     gettimeofday(&now, NULL);
-    timersub(&timeout->wait_time, &now, &wait_time);
+    timersub(&timeout->expire_time, &now, &wait_time);
     if (tv_default && timeout) {
         if (timercmp(&wait_time, tv_default, >))
             memcpy(&tv, tv_default, sizeof(struct timeval));
@@ -633,10 +624,9 @@ iomux_run_timeouts(iomux_t *iomux)
     void *timeout_ptr = NULL;
     while (bh_delete_minimum(iomux->timeouts, &timeout_ptr, NULL) == 0) {
         timeout = (iomux_timeout_t *)timeout_ptr;
-        if (timercmp(&now, &timeout->wait_time, >)) {
-            uint64_t key =  (timeout->wait_time.tv_sec * 1000) + (timeout->wait_time.tv_usec/1000);
+        if (timercmp(&now, &timeout->expire_time, >)) {
             bh_insert(iomux->timeouts,
-                      key,
+                      timeout->id,
                       timeout,
                       sizeof(iomux_timeout_t));
             break;
@@ -895,11 +885,11 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         if (errno == EINTR) {
             MUTEX_UNLOCK(iomux);
             return;
-	}
+        }
         if (errno == EAGAIN) {
             MUTEX_UNLOCK(iomux);
             return;
-	}
+        }
         else if (errno == EBADF) {
             // there is some bad filedescriptor among the managed ones
             // probably the user called close() on the filedescriptor
