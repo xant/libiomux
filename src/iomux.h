@@ -12,6 +12,8 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+
 //! if set to true, the hangup callback (if any) will be called at the end of the current runcycle
 extern int iomux_hangup;
 
