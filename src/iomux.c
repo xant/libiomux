@@ -26,7 +26,6 @@
 
 #if defined(HAVE_EPOLL)
 #include <sys/epoll.h>
-#include <sys/timerfd.h>
 #elif defined(HAVE_KQUEUE)
 #include <sys/event.h>
 #endif
@@ -37,6 +36,7 @@
 #include "bsd_queue.h"
 
 #include "iomux.h"
+#include "bh.h"
 
 #define IOMUX_CONNECTIONS_MAX (1<<16)
 // 1MB default connection bufsize
@@ -71,9 +71,6 @@ typedef struct __iomux_timeout {
     TAILQ_ENTRY(__iomux_timeout) timeout_list;
     void (*cb)(iomux_t *iomux, void *priv);
     void *priv;
-#if defined(HAVE_EPOLL)
-    int timerfd;
-#endif
 } iomux_timeout_t;
 
 //! \brief IOMUX base structure
@@ -97,12 +94,11 @@ struct __iomux {
 #if defined(HAVE_EPOLL)
     struct epoll_event events[IOMUX_CONNECTIONS_MAX];
     int efd; 
-    iomux_timeout_t *timeouts_fd[IOMUX_CONNECTIONS_MAX];
 #elif defined(HAVE_KQUEUE)
     struct kevent events[IOMUX_CONNECTIONS_MAX*2];
     int kfd;
 #endif
-    TAILQ_HEAD(, __iomux_timeout) timeouts;
+    bh_t *timeouts;
     int last_timeout_id;
 
     int num_fds;
@@ -131,7 +127,7 @@ iomux_t *iomux_create(void)
         return NULL;
     }
 
-    TAILQ_INIT(&iomux->timeouts);
+    iomux->timeouts = bh_create();
 
 #if defined(HAVE_EPOLL)
     iomux->efd = epoll_create1(0);
@@ -295,73 +291,27 @@ iomux_remove(iomux_t *iomux, int fd)
 iomux_timeout_id_t
 iomux_schedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
 {
-    iomux_timeout_t *timeout, *timeout2;
+    iomux_timeout_t *timeout;
 
     if (!tv || !cb)
         return 0;
 
     MUTEX_LOCK(iomux);
 
+    struct timeval now;
+    gettimeofday(&now, NULL);
     if (iomux->last_timeout_check.tv_sec == 0)
-        gettimeofday(&iomux->last_timeout_check, NULL);
+        memcpy(&iomux->last_timeout_check, &now, sizeof(struct timeval));
 
     timeout = (iomux_timeout_t *)calloc(1, sizeof(iomux_timeout_t));
-    memcpy(&timeout->wait_time, tv, sizeof(struct timeval));
+    timeradd(&now, tv, &timeout->wait_time);
     timeout->cb = cb;
     timeout->priv = priv;
     timeout->id = ++iomux->last_timeout_id;
 
-#if defined(HAVE_EPOLL)
-    timeout->timerfd = timerfd_create(CLOCK_REALTIME, TFD_NONBLOCK);
-    if (timeout->timerfd == -1) {
-        fprintf(stderr, "Errors creating the timer descriptor : %s\n", strerror(errno));
-        free(timeout);
-        MUTEX_UNLOCK(iomux);
-        return 0;
-    }
-    struct epoll_event event = { 0 };
-
-    event.data.fd = timeout->timerfd;
-
-    event.events = EPOLLIN | EPOLLONESHOT; 
-
-    const struct itimerspec its = { { 0, 0 }, { timeout->wait_time.tv_sec, timeout->wait_time.tv_usec * 1000 } };
-    int rc = timerfd_settime(timeout->timerfd, 0, &its, NULL);
-    if (rc != 0) {
-        fprintf(stderr, "Errors setting the timer on timerfd %d on epoll instance %d : %s\n", 
-                timeout->timerfd, iomux->efd, strerror(errno));
-        close(timeout->timerfd);
-        free(timeout);
-        MUTEX_UNLOCK(iomux);
-        return 0;
-    }
-
-    iomux->timeouts_fd[timeout->timerfd] = timeout;
-
-    rc = epoll_ctl(iomux->efd, EPOLL_CTL_ADD, timeout->timerfd, &event);
-    if (rc == -1) {
-        fprintf(stderr, "Errors adding timeout %d on epoll instance %d : %s\n", 
-                timeout->id, iomux->efd, strerror(errno));
-        close(timeout->timerfd);
-        iomux->timeouts_fd[timeout->timerfd] = NULL;
-        free(timeout);
-        MUTEX_UNLOCK(iomux);
-        return 0;
-    }
-#endif
-
     // keep the list sorted in ascending order
-    TAILQ_FOREACH(timeout2, &iomux->timeouts, timeout_list) {
-        if ((tv->tv_sec == timeout2->wait_time.tv_sec &&  tv->tv_usec < timeout2->wait_time.tv_usec) ||
-                tv->tv_sec < timeout2->wait_time.tv_sec)
-        {
-            TAILQ_INSERT_BEFORE(timeout2, timeout, timeout_list);
-            MUTEX_UNLOCK(iomux);
-            return timeout->id;
-        }
-    }
-    TAILQ_INSERT_TAIL(&iomux->timeouts, timeout, timeout_list);
-
+    uint64_t key =  (timeout->wait_time.tv_sec * 1000) + (timeout->wait_time.tv_usec/1000);
+    bh_insert(iomux->timeouts, key, timeout, sizeof(iomux_timeout_t));
     MUTEX_UNLOCK(iomux);
     return timeout->id;
 }
@@ -373,48 +323,64 @@ iomux_reschedule(iomux_t *iomux, iomux_timeout_id_t id, struct timeval *tv, iomu
     return iomux_schedule(iomux, tv, cb, priv);
 }
 
+/* TODO - use the iterator instead of creating a new binheap 
+ *        to swap with the original one */
 int
 iomux_unschedule_all(iomux_t *iomux, iomux_cb_t cb, void *priv)
 {           
-    iomux_timeout_t *timeout, *timeout_tmp;
+    iomux_timeout_t *timeout = NULL;
     int count = 0;
 
     MUTEX_LOCK(iomux);
-    TAILQ_FOREACH_SAFE(timeout, &iomux->timeouts, timeout_list, timeout_tmp) {
+    bh_t *new_heap = bh_create();
+    void *timeout_ptr = NULL;
+    while (bh_delete_minimum(iomux->timeouts, &timeout_ptr, NULL) == 0) {
+        timeout = (iomux_timeout_t *)timeout_ptr;
         if (cb == timeout->cb && priv == timeout->priv) {
-#if defined(HAVE_EPOLL)
-            iomux->timeouts_fd[timeout->timerfd] = NULL;
-            close(timeout->timerfd);
-#endif
-            TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
             free(timeout);
             count++;
+        } else {
+            uint64_t key =  (timeout->wait_time.tv_sec * 1000) + (timeout->wait_time.tv_usec/1000);
+            bh_insert(new_heap,
+                      key,
+                      timeout,
+                      sizeof(iomux_timeout_t));
         }
     }
+    bh_t *old_heap = iomux->timeouts;
+    iomux->timeouts = new_heap;
+    bh_destroy(old_heap);
     MUTEX_UNLOCK(iomux);
     return count;
+}
+
+typedef struct {
+    iomux_t *iomux;
+    iomux_timeout_id_t timeout_id;
+} iomux_binheap_iterator_arg_t;
+
+static int
+iomux_binheap_iterator_callback(bh_t *bh, uint64_t key, void *value, size_t vlen, void *priv)
+{
+    iomux_binheap_iterator_arg_t *arg = (iomux_binheap_iterator_arg_t *)priv;
+    iomux_timeout_t *timeout = (iomux_timeout_t *)value;
+
+    if (arg->timeout_id == timeout->id) {
+        free(timeout);
+        return 0;
+    }
+    return 1;
 }
 
 int
 iomux_unschedule(iomux_t *iomux, iomux_timeout_id_t id)
 {
-    iomux_timeout_t *timeout, *timeout_tmp;
-
     if (!id)
         return 0;
 
     MUTEX_LOCK(iomux);
-    TAILQ_FOREACH_SAFE(timeout, &iomux->timeouts, timeout_list, timeout_tmp) {
-        if (id == timeout->id) {
-#if defined(HAVE_EPOLL)
-            iomux->timeouts_fd[timeout->timerfd] = NULL;
-            close(timeout->timerfd);
-#endif
-            TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
-            free(timeout);
-            break;
-        }
-    }
+    iomux_binheap_iterator_arg_t arg = { iomux, id };
+    bh_foreach(iomux->timeouts, iomux_binheap_iterator_callback, &arg);
 
     MUTEX_UNLOCK(iomux);
     return 1;
@@ -494,24 +460,6 @@ iomux_hangup_cb(iomux_t *iomux, iomux_cb_t cb, void *priv)
 {
     iomux->hangup_cb = cb;
     iomux->hangup_priv = priv;
-}
-
-static void
-iomux_update_timeouts(iomux_t *iomux)
-{
-    iomux_timeout_t *timeout = NULL;
-    struct timeval diff = { 0, 0 };
-    struct timeval now;
-
-    gettimeofday(&now, NULL);
-    if (iomux->last_timeout_check.tv_sec)
-        timersub(&now, &iomux->last_timeout_check, &diff);
-
-    memcpy(&iomux->last_timeout_check, &now, sizeof(struct timeval));
-
-    // update timeouts' waiting time
-    TAILQ_FOREACH(timeout, &iomux->timeouts, timeout_list)
-        timersub(&timeout->wait_time, &diff, &timeout->wait_time);
 }
 
 // NOTE - this MUST be called while the lock is NOT retained
@@ -603,7 +551,7 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
         return; 
     }
 
-    char *outbuf = iomux->connections[fd]->outbuf;
+    char *outbuf = (char *)iomux->connections[fd]->outbuf;
     int outlen = iomux->connections[fd]->outlen;
 
     MUTEX_UNLOCK(iomux);
@@ -639,27 +587,36 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
     }
 }
 
-#ifndef HAVE_EPOLL
 static struct timeval *
 iomux_adjust_timeout(iomux_t *iomux, struct timeval *tv_default)
 {
-    struct timeval *tv = NULL;
+    static __thread struct timeval tv = { 0, 0 };
     iomux_timeout_t *timeout = NULL;
+    void *timeout_ptr = NULL;
+    uint64_t key = 0;
+    bh_minimum(iomux->timeouts, &key, &timeout_ptr, NULL);
+    timeout = (iomux_timeout_t *)timeout_ptr;
 
-    timeout = TAILQ_FIRST(&iomux->timeouts);
+    if (!timeout)
+        return tv_default;
+
+    struct timeval wait_time = { 0, 0 };
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    timersub(&timeout->wait_time, &now, &wait_time);
     if (tv_default && timeout) {
-        if (timercmp(&timeout->wait_time, tv_default, >))
-            tv = tv_default;
+        if (timercmp(&wait_time, tv_default, >))
+            memcpy(&tv, tv_default, sizeof(struct timeval));
         else
-            tv = &timeout->wait_time;
+            memcpy(&tv, &wait_time, sizeof(struct timeval));
     } else if (timeout) {
-        tv = &timeout->wait_time;
+        memcpy(&tv, &wait_time, sizeof(struct timeval));
     } else if (tv_default) {
-        tv = tv_default;
+        memcpy(&tv, tv_default, sizeof(struct timeval));
     } else {
-        tv = NULL;
+        return NULL;
     }
-    return tv;
+    return &tv;
 }
 
 // NOTE - this MUST be called while the lock is NOT retained
@@ -669,23 +626,30 @@ iomux_run_timeouts(iomux_t *iomux)
     iomux_timeout_t *timeout = NULL;
 
     MUTEX_LOCK(iomux);
-    // run expired timeouts
 
-    iomux_update_timeouts(iomux);
+    struct timeval now;
+    gettimeofday(&now, NULL);
 
-    struct timeval diff = { 0, 0 };
-    while ((timeout = TAILQ_FIRST(&iomux->timeouts)) && timercmp(&timeout->wait_time, &diff, <=)) {
-        TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
+    void *timeout_ptr = NULL;
+    while (bh_delete_minimum(iomux->timeouts, &timeout_ptr, NULL) == 0) {
+        timeout = (iomux_timeout_t *)timeout_ptr;
+        if (timercmp(&now, &timeout->wait_time, >)) {
+            uint64_t key =  (timeout->wait_time.tv_sec * 1000) + (timeout->wait_time.tv_usec/1000);
+            bh_insert(iomux->timeouts,
+                      key,
+                      timeout,
+                      sizeof(iomux_timeout_t));
+            break;
+        }
+        // run expired timeouts
         MUTEX_UNLOCK(iomux);
         timeout->cb(iomux, timeout->priv);
         MUTEX_LOCK(iomux);
         free(timeout);
     }
+
     MUTEX_UNLOCK(iomux);
 }
-
-#endif
-
 
 #if defined(HAVE_KQUEUE)
 void
@@ -783,11 +747,10 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 {
     int fd;
 
-    struct timeval *tv = tv_default;
-
-    int epoll_waiting_time = tv ? ((tv->tv_sec * 1000) + (tv->tv_usec / 1000)) : -1;
-
     MUTEX_LOCK(iomux);
+
+    struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
+    int epoll_waiting_time = tv ? ((tv->tv_sec * 1000) + (tv->tv_usec / 1000)) : -1;
 
     int num_fds = iomux->maxfd - iomux->minfd + 1;
     int i;
@@ -843,7 +806,6 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
         fd  = iomux->events[i].data.fd;
         iomux_connection_t *conn = iomux->connections[fd];
-        iomux_timeout_t *timeout = iomux->timeouts_fd[fd];
         if (conn) {
             iomux_connection_callback_t mux_connection = conn->cbs.mux_connection;
             iomux_input_callback_t mux_input = conn->cbs.mux_input;
@@ -865,15 +827,9 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                     iomux_write_fd(iomux, fd, priv);
                 } 
             }
-        } else if (timeout) {
-            TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
-            close(timeout->timerfd);
-            iomux->timeouts_fd[fd] = NULL;
-            timeout->cb(iomux, timeout->priv);
-            free(timeout);
         }
     }
-    iomux_update_timeouts(iomux);
+    iomux_run_timeouts(iomux);
     MUTEX_UNLOCK(iomux);
 }
 
@@ -1143,7 +1099,7 @@ void
 iomux_clear(iomux_t *iomux)
 {
     int fd;
-    iomux_timeout_t *timeout, *timeout_tmp;
+    iomux_timeout_t *timeout = NULL;
 
     MUTEX_LOCK(iomux);
     for (fd = iomux->maxfd; fd >= iomux->minfd; fd--)
@@ -1153,12 +1109,9 @@ iomux_clear(iomux_t *iomux)
             MUTEX_LOCK(iomux);
         }
 
-    TAILQ_FOREACH_SAFE(timeout, &iomux->timeouts, timeout_list, timeout_tmp) {
-#if defined(HAVE_EPOLL)
-        iomux->timeouts_fd[timeout->timerfd] = NULL;
-        close(timeout->timerfd);
-#endif
-        TAILQ_REMOVE(&iomux->timeouts, timeout, timeout_list);
+    void *timeout_ptr = NULL;
+    while (bh_delete_minimum(iomux->timeouts, &timeout_ptr, NULL) == 0) {
+        timeout = (iomux_timeout_t *)timeout_ptr;
         free(timeout);
     }
     MUTEX_UNLOCK(iomux);

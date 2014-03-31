@@ -88,4 +88,4 @@ install:
 	 cp -v libiomux.a $(LIBDIR)/;\
 	 cp -v libiomux.$(SHAREDEXT) $(LIBDIR)/;\
 	 echo "Installing headers in $(INCDIR)"; \
-	 cp -v src/*.h $(INCDIR)/;
+	 cp -v src/iomux.h $(INCDIR)/;
