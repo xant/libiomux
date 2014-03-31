@@ -152,6 +152,8 @@ binomial_tree_node_destroy(binomial_tree_node_t *node)
             node->num_children--;
         }
         new_parent->parent = NULL;
+    } else {
+        TAILQ_REMOVE(&node->bh->trees, node, next);
     }
 
     for (i = 0; i < node->num_children; i++) {
@@ -261,6 +263,8 @@ bh_insert(bh_t *bh, uint64_t key, void *value, size_t vlen)
     node->vlen = vlen;
     int order = 0;
     binomial_tree_node_t *tree = TAILQ_FIRST(&bh->trees);
+    if (tree)
+        TAILQ_REMOVE(&bh->trees, tree, next);
     while (tree && tree->num_children == order) {
         if (node->key <= tree->key) {
             binomial_tree_merge(node, tree);
@@ -269,8 +273,9 @@ bh_insert(bh_t *bh, uint64_t key, void *value, size_t vlen)
             node = tree;
         }
         order++;
-        TAILQ_REMOVE(&bh->trees, tree, next);
         tree = TAILQ_FIRST(&bh->trees);
+        if (tree)
+            TAILQ_REMOVE(&bh->trees, tree, next);
     }
     if (tree)
         TAILQ_INSERT_HEAD(&bh->trees, tree, next);

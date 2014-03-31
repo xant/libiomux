@@ -219,6 +219,13 @@ void test_timeout(iomux_t *mux, int fd, void *priv)
     iomux_end_loop(mux);
 }
 
+void test_timeout_nofd(iomux_t *mux, void *priv)
+{
+    int *cnt = (int *)priv;
+    (*cnt)++;
+    iomux_end_loop(mux);
+}
+
 /*
 void test_eof(iomux_t *mux, int fd, void *priv)
 {
@@ -307,14 +314,32 @@ main(int argc, char **argv)
     iomux_loop(mux, NULL);
     ut_success();
 
+    struct timeval tv = { 0, 5000 };
+
+    int cnt = 0;
+    ut_testing("iomux_schedule()");
+    uint64_t timerid = iomux_schedule(mux, &tv, test_timeout_nofd, &cnt);
+    if (timerid > 0)
+        ut_success();
+    else
+        ut_failure("Can't obtain a timer id");
+
+    ut_testing("iomux_unschedule()");
+    ut_validate_int(iomux_unschedule(mux, timerid), 1);
+
+    ut_testing("timer runs");
+    timerid = iomux_schedule(mux, &tv, test_timeout_nofd, &cnt);
+    iomux_loop(mux, NULL);
+    ut_validate_int(cnt, 1);
+
     iomux_loop_next_cb(mux, loop_next, NULL);
     iomux_loop_end_cb(mux, loop_end, NULL);
     iomux_hangup_cb(mux, loop_hangup, NULL);
 
     ut_testing("iomux_loop_next() callback");
 
-    struct timeval tv = { 0, 5000 };
     iomux_loop(mux, &tv);
+
 
     iomux_destroy(mux);
 

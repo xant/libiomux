@@ -624,7 +624,7 @@ iomux_run_timeouts(iomux_t *iomux)
     void *timeout_ptr = NULL;
     while (bh_delete_minimum(iomux->timeouts, &timeout_ptr, NULL) == 0) {
         timeout = (iomux_timeout_t *)timeout_ptr;
-        if (timercmp(&now, &timeout->expire_time, >)) {
+        if (timercmp(&now, &timeout->expire_time, <)) {
             bh_insert(iomux->timeouts,
                       timeout->id,
                       timeout,
