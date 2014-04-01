@@ -189,7 +189,7 @@ bh_destroy(bh_t *bh)
     free(bh);
 }
 
-int binomial_tree_merge(binomial_tree_node_t *node1, binomial_tree_node_t *node2)
+static int binomial_tree_merge(binomial_tree_node_t *node1, binomial_tree_node_t *node2)
 {
     node1->children = realloc(node1->children, sizeof(binomial_tree_node_t *) * (node1->num_children + 1));
     node1->children[node1->num_children++] = node2;
