@@ -46,6 +46,8 @@
 #define MUTEX_LOCK(__iom) if (__iom->lock) pthread_mutex_lock(__iom->lock);
 #define MUTEX_UNLOCK(__iom) if (__iom->lock) pthread_mutex_unlock(__iom->lock);
 
+void iomux_run(iomux_t *iomux, struct timeval *tv_default);
+
 int iomux_hangup = 0;
 
 //! \brief iomux connection strucure
@@ -641,300 +643,6 @@ iomux_run_timeouts(iomux_t *iomux)
     MUTEX_UNLOCK(iomux);
 }
 
-#if defined(HAVE_KQUEUE)
-void
-iomux_run(iomux_t *iomux, struct timeval *tv_default)
-{
-    int i;
-    struct timespec ts;
-
-    MUTEX_LOCK(iomux);
-
-    int n = 0;
-    for (i = iomux->minfd; i <= iomux->maxfd; i++) {
-        if (!iomux->connections[i])
-            continue;
-        if (iomux->connections[i]->cbs.mux_output) {
-            int maxlen = IOMUX_CONNECTION_BUFSIZE - iomux->connections[i]->outlen;
-            unsigned char data[maxlen];
-            int len = maxlen;
-            iomux->connections[i]->cbs.mux_output(iomux, i, data, &len,
-                                                  iomux->connections[i]->cbs.priv);
-            if (len) {
-                memmove(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
-                iomux->connections[i]->outlen += len;
-                memcpy(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
-                n += 2;
-            } else {
-                memmove(&iomux->events[n], &iomux->connections[i]->event, sizeof(struct kevent));
-                n++;
-            }
-        } else if (iomux->connections[i]->outlen) {
-            memmove(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
-            n += 2;
-        } else {
-            memmove(&iomux->events[n], &iomux->connections[i]->event, sizeof(struct kevent));
-            n++;
-        }
-    }
-
-    struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
-    if (tv) {
-        ts.tv_sec = tv->tv_sec;
-        ts.tv_nsec = tv->tv_usec * 1000;
-    }
-
-    MUTEX_UNLOCK(iomux);
-    int cnt = kevent(iomux->kfd, iomux->events, n, iomux->events, IOMUX_CONNECTIONS_MAX * 2, tv ? &ts : NULL);
-    MUTEX_LOCK(iomux);
-
-    if (cnt == -1) {
-        fprintf(stderr, "kevent returned error : %s\n", strerror(errno));
-    } else if (cnt > 0) {
-        for (i = 0; i < cnt; i++) {
-            struct kevent *event = &iomux->events[i];
-            int fd = event->ident;
-            iomux_connection_t *conn = iomux->connections[fd];
-            if (!conn) {
-                // TODO - Error Messages
-                continue;
-            }
-
-            if (event->filter == EVFILT_READ) {
-                if ((iomux->connections[fd]->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER) && event->data)
-                {
-                    while(event->data--) {
-                        iomux_connection_callback_t mux_connection = iomux->connections[fd]->cbs.mux_connection;
-                        void * priv = iomux->connections[fd]->cbs.priv;
-                        iomux_accept_connections_fd(iomux, fd, mux_connection, priv);
-                    }
-                } else {
-                    iomux_input_callback_t mux_input = iomux->connections[fd]->cbs.mux_input;
-                    void * priv = iomux->connections[fd]->cbs.priv;
-                    iomux_read_fd(iomux, fd, mux_input, priv);
-                }
-            }
-
-            if (event->flags & EV_EOF) {
-                iomux_close(iomux, fd);
-                continue;
-            }
-
-            if (event->filter == EVFILT_WRITE) {
-                void * priv = iomux->connections[fd]->cbs.priv;
-                iomux_write_fd(iomux, fd, priv);
-            }
-        }
-    }
-    MUTEX_UNLOCK(iomux);
-    iomux_run_timeouts(iomux);
-}
-
-#elif defined(HAVE_EPOLL)
-
-void
-iomux_run(iomux_t *iomux, struct timeval *tv_default)
-{
-    int fd;
-
-    MUTEX_LOCK(iomux);
-
-    struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
-    int epoll_waiting_time = tv ? ((tv->tv_sec * 1000) + (tv->tv_usec / 1000)) : -1;
-
-    int num_fds = iomux->maxfd - iomux->minfd + 1;
-    int i;
-    for (i = iomux->minfd; i <= iomux->maxfd; i++) {
-        if (!iomux->connections[i])
-            continue;
-        if (iomux->connections[i]->cbs.mux_output) {
-            int maxlen = IOMUX_CONNECTION_BUFSIZE - iomux->connections[i]->outlen;
-            unsigned char data[maxlen];
-            int len = maxlen;
-            iomux->connections[i]->cbs.mux_output(iomux, i, data, &len,
-                                                  iomux->connections[i]->cbs.priv);
-            if (len) {
-                memmove(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
-                iomux->connections[i]->outlen += len;
-            }
-        } 
-        if (iomux->connections[i]->outlen) {
-            struct epoll_event event;
-            bzero(&event, sizeof(event));
-            event.data.fd = i;
-            event.events = EPOLLIN | EPOLLOUT;
-
-            int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, i, &event);
-            if (rc == -1) {
-                fprintf(stderr, "Errors modifying fd %d to epoll instance %d : %s\n", 
-                        i, iomux->efd, strerror(errno));
-            }
-        } 
-    }
-
-
-
-    MUTEX_UNLOCK(iomux);
-
-    int n = epoll_wait(iomux->efd, iomux->events, num_fds, epoll_waiting_time);
-
-    MUTEX_LOCK(iomux);
-
-    for (i = 0; i < n; i++) {
-        if ((iomux->events[i].events & EPOLLHUP))
-        {
-            iomux_close(iomux, iomux->events[i].data.fd);
-            continue;
-        } else if ((iomux->events[i].events & EPOLLERR)) {
-            if (errno != EINPROGRESS) {
-                fprintf (stderr, "epoll error on fd %d: %s\n",
-                        iomux->events[i].data.fd, strerror(errno));
-                iomux_close(iomux, iomux->events[i].data.fd);
-            }
-            continue;
-        }
-
-        fd  = iomux->events[i].data.fd;
-        iomux_connection_t *conn = iomux->connections[fd];
-        if (conn) {
-            iomux_connection_callback_t mux_connection = conn->cbs.mux_connection;
-            iomux_input_callback_t mux_input = conn->cbs.mux_input;
-            void *priv = conn->cbs.priv;
-
-            if ((conn->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER))
-            {
-                iomux_accept_connections_fd(iomux, fd, mux_connection, priv);
-            } else {
-                if (iomux->events[i].events & EPOLLIN || iomux->events[i].events & EPOLLPRI)
-                {
-                    iomux_read_fd(iomux, fd, mux_input, priv);
-                }
-
-                if (!iomux->connections[fd]) // connection has been closed/removed
-                    continue;
-
-                if (iomux->events[i].events & EPOLLOUT) {
-                    iomux_write_fd(iomux, fd, priv);
-                } 
-            }
-        }
-    }
-    iomux_run_timeouts(iomux);
-    MUTEX_UNLOCK(iomux);
-}
-
-#else
-
-void
-iomux_run(iomux_t *iomux, struct timeval *tv_default)
-{
-    int fd;
-    fd_set rin, rout;
-    int maxfd = iomux->minfd;;
-
-    FD_ZERO(&rin);
-    FD_ZERO(&rout);
-
-    MUTEX_LOCK(iomux);
-
-    for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
-        if (iomux->connections[fd])  {
-            iomux_connection_t *conn = iomux->connections[fd];
-            // always register managed fds for reading (even if 
-            // no mux_input callbacks is present) to detect EOF.
-            FD_SET(fd, &rin);
-            if (fd > maxfd)
-                maxfd = fd;
-            if (conn->cbs.mux_output) {
-                int maxsize = IOMUX_CONNECTION_BUFSIZE - iomux->connections[fd]->outlen;
-                unsigned char data[maxsize];
-                int len = maxsize;
-                iomux->connections[fd]->cbs.mux_output(iomux, fd, data, &len,
-                                                      iomux->connections[fd]->cbs.priv);
-                if (len) {
-                    memmove(iomux->connections[fd]->outbuf + iomux->connections[fd]->outlen, data, len);
-                    iomux->connections[fd]->outlen += len;
-                }
-            }
-            if (conn->outlen) {
-                // output pending data
-                FD_SET(fd, &rout);
-                if (fd > maxfd)
-                    maxfd = fd;
-            }
-        }
-    }
-
-    // NOTE: some select() implementations update the timeout with
-    //       the unslept time (possibly 0 if no events happened)
-    //       and we don't want to modify the timeout provided to us
-    //       as argument, hence we make a copy here and we pass the
-    //       copy to select()
-    struct timeval tv_select = { 0, 0 };
-
-    // shrink the timeout if we have timers expiring earlier
-    struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
-    if (tv)
-        memcpy(&tv_select, tv, sizeof(tv_select));
-
-    MUTEX_UNLOCK(iomux);
-    int rc = select(maxfd+1, &rin, &rout, NULL, tv ? &tv_select : NULL);
-    MUTEX_LOCK(iomux);
-    switch (rc) {
-    case -1:
-        if (errno == EINTR) {
-            MUTEX_UNLOCK(iomux);
-            return;
-        }
-        if (errno == EAGAIN) {
-            MUTEX_UNLOCK(iomux);
-            return;
-        }
-        else if (errno == EBADF) {
-            // there is some bad filedescriptor among the managed ones
-            // probably the user called close() on the filedescriptor
-            // without informing the iomux
-            for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
-                if (iomux->connections[fd] && fcntl(fd, F_GETFD, 0) == -1) {
-                    iomux_close(iomux, fd);
-                }
-            }
-        }
-        set_error(iomux, "select(): %s", strerror(errno));
-        break;
-    case 0:
-        break;
-    default:
-        for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
-            iomux_connection_t *conn = iomux->connections[fd];
-            if (conn) {
-                iomux_connection_callback_t mux_connection = conn->cbs.mux_connection;
-                iomux_input_callback_t mux_input = conn->cbs.mux_input;
-                void *priv = conn->cbs.priv;
-                if (FD_ISSET(fd, &rin)) {
-                    // check if this is a listening socket
-                    if ((iomux->connections[fd]->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER)) {
-                        iomux_accept_connections_fd(iomux, fd, mux_connection, priv);
-                    } else {
-                        iomux_read_fd(iomux, fd, mux_input, priv);
-                    }
-                }
-                if (!iomux->connections[fd]) // connection has been closed/removed
-                    continue;
-
-                if (FD_ISSET(fd, &rout)) {
-                    iomux_write_fd(iomux, fd, priv);
-                }
-            }
-        }
-    }
-
-    iomux_run_timeouts(iomux);
-    MUTEX_UNLOCK(iomux);
-}
-
-#endif
-
 void
 iomux_loop(iomux_t *iomux, struct timeval *tv)
 {
@@ -1123,4 +831,318 @@ int iomux_num_fds(iomux_t *iomux)
     MUTEX_UNLOCK(iomux);
     return num_fds;
 }
+
+#if defined(HAVE_KQUEUE)
+void
+iomux_run(iomux_t *iomux, struct timeval *tv_default)
+{
+    int i;
+    struct timespec ts;
+
+    MUTEX_LOCK(iomux);
+
+    int n = 0;
+    for (i = iomux->minfd; i <= iomux->maxfd; i++) {
+        if (!iomux->connections[i])
+            continue;
+        if (iomux->connections[i]->cbs.mux_output) {
+            int maxlen = IOMUX_CONNECTION_BUFSIZE - iomux->connections[i]->outlen;
+            unsigned char data[maxlen];
+            int len = maxlen;
+            iomux->connections[i]->cbs.mux_output(iomux, i, data, &len,
+                                                  iomux->connections[i]->cbs.priv);
+            if (len) {
+                memmove(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
+                iomux->connections[i]->outlen += len;
+                memcpy(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
+                n += 2;
+            } else {
+                memmove(&iomux->events[n], &iomux->connections[i]->event, sizeof(struct kevent));
+                n++;
+            }
+        } else if (iomux->connections[i]->outlen) {
+            memmove(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
+            n += 2;
+        } else {
+            memmove(&iomux->events[n], &iomux->connections[i]->event, sizeof(struct kevent));
+            n++;
+        }
+    }
+
+    struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
+    if (tv) {
+        ts.tv_sec = tv->tv_sec;
+        ts.tv_nsec = tv->tv_usec * 1000;
+    }
+
+    MUTEX_UNLOCK(iomux);
+    int cnt = 0;
+    if (n > 0) {
+        cnt = kevent(iomux->kfd, iomux->events, n, iomux->events, IOMUX_CONNECTIONS_MAX * 2, tv ? &ts : NULL);
+    } else if (tv) {
+        struct timeval tv_select = { 0, 0 };
+        if (tv)
+            memcpy(&tv_select, tv, sizeof(tv_select));
+        // there are no filedescriptor in the mux, we just want to wait until next timeout expires
+        select(0, NULL, NULL, NULL, tv ? &tv_select : NULL);
+    }
+    MUTEX_LOCK(iomux);
+
+    if (cnt == -1) {
+        fprintf(stderr, "kevent returned error : %s\n", strerror(errno));
+    } else if (cnt > 0) {
+        for (i = 0; i < cnt; i++) {
+            struct kevent *event = &iomux->events[i];
+            int fd = event->ident;
+            iomux_connection_t *conn = iomux->connections[fd];
+            if (!conn) {
+                // TODO - Error Messages
+                continue;
+            }
+
+            if (event->filter == EVFILT_READ) {
+                if ((iomux->connections[fd]->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER) && event->data)
+                {
+                    while(event->data--) {
+                        iomux_connection_callback_t mux_connection = iomux->connections[fd]->cbs.mux_connection;
+                        void * priv = iomux->connections[fd]->cbs.priv;
+                        iomux_accept_connections_fd(iomux, fd, mux_connection, priv);
+                    }
+                } else {
+                    iomux_input_callback_t mux_input = iomux->connections[fd]->cbs.mux_input;
+                    void * priv = iomux->connections[fd]->cbs.priv;
+                    iomux_read_fd(iomux, fd, mux_input, priv);
+                }
+            }
+
+            if (event->flags & EV_EOF) {
+                iomux_close(iomux, fd);
+                continue;
+            }
+
+            if (event->filter == EVFILT_WRITE) {
+                void * priv = iomux->connections[fd]->cbs.priv;
+                iomux_write_fd(iomux, fd, priv);
+            }
+        }
+    }
+    MUTEX_UNLOCK(iomux);
+    iomux_run_timeouts(iomux);
+}
+
+#elif defined(HAVE_EPOLL)
+
+void
+iomux_run(iomux_t *iomux, struct timeval *tv_default)
+{
+    int fd;
+
+    MUTEX_LOCK(iomux);
+
+    int num_fds = iomux->maxfd - iomux->minfd + 1;
+    int i;
+    for (i = iomux->minfd; i <= iomux->maxfd; i++) {
+        if (!iomux->connections[i])
+            continue;
+        if (iomux->connections[i]->cbs.mux_output) {
+            int maxlen = IOMUX_CONNECTION_BUFSIZE - iomux->connections[i]->outlen;
+            unsigned char data[maxlen];
+            int len = maxlen;
+            iomux->connections[i]->cbs.mux_output(iomux, i, data, &len,
+                                                  iomux->connections[i]->cbs.priv);
+            if (len) {
+                memmove(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
+                iomux->connections[i]->outlen += len;
+            }
+        } 
+        if (iomux->connections[i]->outlen) {
+            struct epoll_event event;
+            bzero(&event, sizeof(event));
+            event.data.fd = i;
+            event.events = EPOLLIN | EPOLLOUT;
+
+            int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, i, &event);
+            if (rc == -1) {
+                fprintf(stderr, "Errors modifying fd %d to epoll instance %d : %s\n", 
+                        i, iomux->efd, strerror(errno));
+            }
+        } 
+    }
+
+
+
+    MUTEX_UNLOCK(iomux);
+
+    // shrink the timeout if we have timers expiring earlier
+    struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
+    int epoll_waiting_time = tv ? ((tv->tv_sec * 1000) + (tv->tv_usec / 1000)) : -1;
+
+    int n = 0;
+    if (num_fds > 0) {
+        n = epoll_wait(iomux->efd, iomux->events, num_fds, epoll_waiting_time);
+    } else if (tv) {
+        struct timeval tv_select = { 0, 0 };
+        if (tv)
+            memcpy(&tv_select, tv, sizeof(tv_select));
+        // there are no filedescriptor in the mux, we just want to wait until next timeout expires
+        select(0, NULL, NULL, NULL, tv ? &tv_select : NULL);
+    }
+
+    MUTEX_LOCK(iomux);
+
+    for (i = 0; i < n; i++) {
+        if ((iomux->events[i].events & EPOLLHUP))
+        {
+            iomux_close(iomux, iomux->events[i].data.fd);
+            continue;
+        } else if ((iomux->events[i].events & EPOLLERR)) {
+            if (errno != EINPROGRESS) {
+                fprintf (stderr, "epoll error on fd %d: %s\n",
+                        iomux->events[i].data.fd, strerror(errno));
+                iomux_close(iomux, iomux->events[i].data.fd);
+            }
+            continue;
+        }
+
+        fd  = iomux->events[i].data.fd;
+        iomux_connection_t *conn = iomux->connections[fd];
+        if (conn) {
+            iomux_connection_callback_t mux_connection = conn->cbs.mux_connection;
+            iomux_input_callback_t mux_input = conn->cbs.mux_input;
+            void *priv = conn->cbs.priv;
+
+            if ((conn->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER))
+            {
+                iomux_accept_connections_fd(iomux, fd, mux_connection, priv);
+            } else {
+                if (iomux->events[i].events & EPOLLIN || iomux->events[i].events & EPOLLPRI)
+                {
+                    iomux_read_fd(iomux, fd, mux_input, priv);
+                }
+
+                if (!iomux->connections[fd]) // connection has been closed/removed
+                    continue;
+
+                if (iomux->events[i].events & EPOLLOUT) {
+                    iomux_write_fd(iomux, fd, priv);
+                } 
+            }
+        }
+    }
+    iomux_run_timeouts(iomux);
+    MUTEX_UNLOCK(iomux);
+}
+
+#else
+
+void
+iomux_run(iomux_t *iomux, struct timeval *tv_default)
+{
+    int fd;
+    fd_set rin, rout;
+    int maxfd = iomux->minfd;;
+
+    FD_ZERO(&rin);
+    FD_ZERO(&rout);
+
+    MUTEX_LOCK(iomux);
+
+    for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
+        if (iomux->connections[fd])  {
+            iomux_connection_t *conn = iomux->connections[fd];
+            // always register managed fds for reading (even if 
+            // no mux_input callbacks is present) to detect EOF.
+            FD_SET(fd, &rin);
+            if (fd > maxfd)
+                maxfd = fd;
+            if (conn->cbs.mux_output) {
+                int maxsize = IOMUX_CONNECTION_BUFSIZE - iomux->connections[fd]->outlen;
+                unsigned char data[maxsize];
+                int len = maxsize;
+                iomux->connections[fd]->cbs.mux_output(iomux, fd, data, &len,
+                                                      iomux->connections[fd]->cbs.priv);
+                if (len) {
+                    memmove(iomux->connections[fd]->outbuf + iomux->connections[fd]->outlen, data, len);
+                    iomux->connections[fd]->outlen += len;
+                }
+            }
+            if (conn->outlen) {
+                // output pending data
+                FD_SET(fd, &rout);
+                if (fd > maxfd)
+                    maxfd = fd;
+            }
+        }
+    }
+
+    // NOTE: some select() implementations update the timeout with
+    //       the unslept time (possibly 0 if no events happened)
+    //       and we don't want to modify the timeout provided to us
+    //       as argument, hence we make a copy here and we pass the
+    //       copy to select()
+    struct timeval tv_select = { 0, 0 };
+
+    // shrink the timeout if we have timers expiring earlier
+    struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
+    if (tv)
+        memcpy(&tv_select, tv, sizeof(tv_select));
+
+    MUTEX_UNLOCK(iomux);
+    int rc = select(maxfd+1, &rin, &rout, NULL, tv ? &tv_select : NULL);
+    MUTEX_LOCK(iomux);
+    switch (rc) {
+    case -1:
+        if (errno == EINTR) {
+            MUTEX_UNLOCK(iomux);
+            return;
+        }
+        if (errno == EAGAIN) {
+            MUTEX_UNLOCK(iomux);
+            return;
+        }
+        else if (errno == EBADF) {
+            // there is some bad filedescriptor among the managed ones
+            // probably the user called close() on the filedescriptor
+            // without informing the iomux
+            for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
+                if (iomux->connections[fd] && fcntl(fd, F_GETFD, 0) == -1) {
+                    iomux_close(iomux, fd);
+                }
+            }
+        }
+        set_error(iomux, "select(): %s", strerror(errno));
+        break;
+    case 0:
+        break;
+    default:
+        for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
+            iomux_connection_t *conn = iomux->connections[fd];
+            if (conn) {
+                iomux_connection_callback_t mux_connection = conn->cbs.mux_connection;
+                iomux_input_callback_t mux_input = conn->cbs.mux_input;
+                void *priv = conn->cbs.priv;
+                if (FD_ISSET(fd, &rin)) {
+                    // check if this is a listening socket
+                    if ((iomux->connections[fd]->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER)) {
+                        iomux_accept_connections_fd(iomux, fd, mux_connection, priv);
+                    } else {
+                        iomux_read_fd(iomux, fd, mux_input, priv);
+                    }
+                }
+                if (!iomux->connections[fd]) // connection has been closed/removed
+                    continue;
+
+                if (FD_ISSET(fd, &rout)) {
+                    iomux_write_fd(iomux, fd, priv);
+                }
+            }
+        }
+    }
+
+    iomux_run_timeouts(iomux);
+    MUTEX_UNLOCK(iomux);
+}
+
+#endif
+
 
