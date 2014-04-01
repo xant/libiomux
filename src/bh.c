@@ -150,9 +150,9 @@ binomial_tree_node_destroy(binomial_tree_node_t *node)
                            sizeof(binomial_tree_node_t *) * (node->num_children - (child_index + 1)));
                 }
                 node->num_children--;
+                new_parent->parent = NULL;
+                TAILQ_INSERT_AFTER(&node->bh->trees, node, new_parent, next);
             }
-            new_parent->parent = NULL;
-            TAILQ_INSERT_AFTER(&node->bh->trees, node, new_parent, next);
         }
         TAILQ_REMOVE(&node->bh->trees, node, next);
     }
