@@ -138,21 +138,22 @@ binomial_tree_node_destroy(binomial_tree_node_t *node)
             }
             new_parent->num_children--;
         }
-    } else if (node->num_children) {
-        int child_index = binomial_tree_node_find_min_child(node);
-
-        if (child_index >= 0) {
-            new_parent = node->children[child_index];
-            if (child_index < node->num_children - 1) {
-                memcpy(&node->children[child_index],
-                       &node->children[child_index + 1],
-                       sizeof(binomial_tree_node_t *) * (node->num_children - (child_index + 1)));
-                       
-            }
-            node->num_children--;
-        }
-        new_parent->parent = NULL;
     } else {
+        if (node->num_children) {
+            int child_index = binomial_tree_node_find_min_child(node);
+
+            if (child_index >= 0) {
+                new_parent = node->children[child_index];
+                if (child_index < node->num_children - 1) {
+                    memcpy(&node->children[child_index],
+                           &node->children[child_index + 1],
+                           sizeof(binomial_tree_node_t *) * (node->num_children - (child_index + 1)));
+                }
+                node->num_children--;
+            }
+            new_parent->parent = NULL;
+            TAILQ_INSERT_AFTER(&node->bh->trees, node, new_parent, next);
+        }
         TAILQ_REMOVE(&node->bh->trees, node, next);
     }
 
@@ -172,7 +173,6 @@ bh_create()
 {
     bh_t *bh = calloc(1, sizeof(bh_t));
     TAILQ_INIT(&bh->trees);
-    //set_free_value_callback(bh->trees, (free_value_callback_t)binomial_tree_node_destroy);
     return bh;
 }
 
