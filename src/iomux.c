@@ -853,7 +853,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             iomux->connections[i]->cbs.mux_output(iomux, i, data, &len,
                                                   iomux->connections[i]->cbs.priv);
 
-            if (!iomux->connections[fd])
+            if (!iomux->connections[i])
                 continue;
 
             if (len) {
