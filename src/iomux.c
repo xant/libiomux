@@ -790,7 +790,7 @@ iomux_destroy(iomux_t *iomux)
         pthread_mutex_destroy(iomux->lock);
         free(iomux->lock);
     }
-    bh_destroy(iomux->timers);
+    bh_destroy(iomux->timeouts);
     free(iomux);
 }
 
@@ -852,6 +852,10 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             int len = maxlen;
             iomux->connections[i]->cbs.mux_output(iomux, i, data, &len,
                                                   iomux->connections[i]->cbs.priv);
+
+            if (!iomux->connections[fd])
+                continue;
+
             if (len) {
                 memmove(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
                 iomux->connections[i]->outlen += len;
@@ -951,6 +955,10 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             int len = maxlen;
             iomux->connections[i]->cbs.mux_output(iomux, i, data, &len,
                                                   iomux->connections[i]->cbs.priv);
+
+            if (!iomux->connections[fd])
+                continue;
+
             if (len) {
                 memmove(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
                 iomux->connections[i]->outlen += len;
@@ -1053,20 +1061,25 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             iomux_connection_t *conn = iomux->connections[fd];
             // always register managed fds for reading (even if 
             // no mux_input callbacks is present) to detect EOF.
-            FD_SET(fd, &rin);
-            if (fd > maxfd)
-                maxfd = fd;
             if (conn->cbs.mux_output) {
                 int maxsize = IOMUX_CONNECTION_BUFSIZE - iomux->connections[fd]->outlen;
                 unsigned char data[maxsize];
                 int len = maxsize;
                 iomux->connections[fd]->cbs.mux_output(iomux, fd, data, &len,
                                                       iomux->connections[fd]->cbs.priv);
+                if (!iomux->connections[fd])
+		    continue;
+
                 if (len) {
                     memmove(iomux->connections[fd]->outbuf + iomux->connections[fd]->outlen, data, len);
                     iomux->connections[fd]->outlen += len;
                 }
             }
+
+            FD_SET(fd, &rin);
+            if (fd > maxfd)
+                maxfd = fd;
+
             if (conn->outlen) {
                 // output pending data
                 FD_SET(fd, &rout);
