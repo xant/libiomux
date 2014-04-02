@@ -790,6 +790,7 @@ iomux_destroy(iomux_t *iomux)
         pthread_mutex_destroy(iomux->lock);
         free(iomux->lock);
     }
+    bh_destroy(iomux->timers);
     free(iomux);
 }
 
