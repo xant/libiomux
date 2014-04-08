@@ -38,9 +38,9 @@
 #include "iomux.h"
 #include "bh.h"
 
-#define IOMUX_CONNECTIONS_MAX (1<<16)
+#define IOMUX_CONNECTIONS_MAX_DEFAULT (1<<13) // defaults to 8192
 // 1MB default connection bufsize
-#define IOMUX_CONNECTION_BUFSIZE (1<<16)
+#define IOMUX_CONNECTION_BUFSIZE_DEFAULT (1<<13) // defaults to 8192
 #define IOMUX_CONNECTION_SERVER (1)
 
 #define MUTEX_LOCK(__iom) if (__iom->lock) pthread_mutex_lock(__iom->lock);
@@ -54,8 +54,9 @@ int iomux_hangup = 0;
 typedef struct __iomux_connection {
     uint32_t flags;
     iomux_callbacks_t cbs;
-    unsigned char inbuf[IOMUX_CONNECTION_BUFSIZE];
-    unsigned char outbuf[IOMUX_CONNECTION_BUFSIZE];
+    unsigned char *inbuf;
+    unsigned char *outbuf;
+    int bufsize;
     int eof;
     int inlen;
     int outlen;
@@ -77,9 +78,11 @@ typedef struct __iomux_timeout {
 
 //! \brief IOMUX base structure
 struct __iomux {
-    iomux_connection_t *connections[IOMUX_CONNECTIONS_MAX];
+    iomux_connection_t **connections;
     int maxfd;
     int minfd;
+    int bufsize;
+    int maxconnections;
     int leave;
 
     iomux_cb_t loop_next_cb;
@@ -94,10 +97,10 @@ struct __iomux {
     struct timeval last_timeout_check;
 
 #if defined(HAVE_EPOLL)
-    struct epoll_event events[IOMUX_CONNECTIONS_MAX];
+    struct epoll_event *events;
     int efd; 
 #elif defined(HAVE_KQUEUE)
-    struct kevent events[IOMUX_CONNECTIONS_MAX*2];
+    struct kevent *events;
     int kfd;
 #endif
     bh_t *timeouts;
@@ -120,7 +123,8 @@ static void set_error(iomux_t *iomux, char *fmt, ...) {
 
 static void iomux_handle_timeout(iomux_t *iomux, void *priv);
 
-iomux_t *iomux_create(void)
+iomux_t *
+iomux_create(int max_connections, int bufsize, int threadsafe)
 {
     iomux_t *iomux = (iomux_t *)calloc(1, sizeof(iomux_t));
 
@@ -129,7 +133,8 @@ iomux_t *iomux_create(void)
         return NULL;
     }
 
-    iomux->timeouts = bh_create();
+    iomux->bufsize = (bufsize > 0) ? bufsize : IOMUX_CONNECTION_BUFSIZE_DEFAULT;
+    iomux->maxconnections = (max_connections > 0) ? max_connections : IOMUX_CONNECTIONS_MAX_DEFAULT;
 
 #if defined(HAVE_EPOLL)
     iomux->efd = epoll_create1(0);
@@ -138,6 +143,7 @@ iomux_t *iomux_create(void)
         free(iomux);
         return NULL;
     }
+    iomux->events = calloc(1, sizeof(struct epoll_event) * iomux->maxconnections);
 #elif defined(HAVE_KQUEUE)
     iomux->kfd = kqueue();
     if (iomux->kfd == -1) {
@@ -145,28 +151,24 @@ iomux_t *iomux_create(void)
         free(iomux);
         return NULL;
     }
+    iomux->events = calloc(1, sizeof(struct kevent) * (iomux->maxconnections * 2));
 #endif
 
-    iomux->last_timeout_id = 0;
+    iomux->connections = calloc(1, sizeof(iomux_connection_t *) * iomux->maxconnections);
 
-    return iomux;
-}
+    iomux->timeouts = bh_create();
 
-void
-iomux_set_threadsafe(iomux_t *iomux, int threadsafe)
-{
-    if (threadsafe && !iomux->lock) {
+    if (threadsafe) {
         iomux->lock = malloc(sizeof(pthread_mutex_t));
         pthread_mutexattr_t attr;
         pthread_mutexattr_init(&attr);
         pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
         pthread_mutex_init(iomux->lock, &attr);
         pthread_mutexattr_destroy(&attr);
-    } else if (!threadsafe && iomux->lock) {
-        pthread_mutex_destroy(iomux->lock);
-        free(iomux->lock);
-        iomux->lock = NULL;
     }
+    iomux->last_timeout_id = 0;
+
+    return iomux;
 }
 
 int
@@ -180,8 +182,8 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
         set_error(iomux, "fd %d is invalid", fd);
         MUTEX_UNLOCK(iomux);
         return 0;
-    } else if (fd >= IOMUX_CONNECTIONS_MAX) {
-        set_error(iomux, "fd %d exceeds max fd %d", fd, IOMUX_CONNECTIONS_MAX);
+    } else if (fd >= iomux->maxconnections) {
+        set_error(iomux, "fd %d exceeds max fd %d", fd, iomux->maxconnections);
         MUTEX_UNLOCK(iomux);
         return 0;
     }
@@ -231,6 +233,11 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
             iomux->minfd = fd;
         
         memcpy(&connection->cbs, cbs, sizeof(connection->cbs));
+
+        connection->inbuf = malloc(iomux->bufsize);
+        connection->outbuf = malloc(iomux->bufsize);
+        connection->bufsize = iomux->bufsize;
+
         iomux->connections[fd] = connection;
         iomux->num_fds++;
         while (!iomux->connections[iomux->minfd] && iomux->minfd != iomux->maxfd)
@@ -271,6 +278,8 @@ iomux_remove(iomux_t *iomux, int fd)
         EV_SET(&iomux->connections[fd]->event[i], fd, iomux->connections[fd]->kfilters[i], EV_DELETE | EV_ONESHOT, 0, 0, 0);
     }
 #endif
+    free(iomux->connections[fd]->inbuf);
+    free(iomux->connections[fd]->outbuf);
     free(iomux->connections[fd]);
     iomux->connections[fd] = NULL;
     iomux->num_fds--;
@@ -478,12 +487,12 @@ iomux_read_fd(iomux_t *iomux, int fd, iomux_input_callback_t mux_input, void *pr
     MUTEX_LOCK(iomux);
     iomux_connection_t *conn = iomux->connections[fd];
 
-    if (conn->inlen >= IOMUX_CONNECTION_BUFSIZE) {
+    if (conn->inlen >= conn->bufsize) {
         MUTEX_UNLOCK(iomux);
         return;
     }
 
-    int rb = read(fd, conn->inbuf + conn->inlen, IOMUX_CONNECTION_BUFSIZE - conn->inlen);
+    int rb = read(fd, conn->inbuf + conn->inlen, conn->bufsize - conn->inlen);
 
     if (rb == -1) {
         if (errno != EINTR && errno != EAGAIN) {
@@ -677,7 +686,7 @@ iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
     if (!iomux->connections[fd])
         return 0;
 
-    int free_space = IOMUX_CONNECTION_BUFSIZE-iomux->connections[fd]->outlen;
+    int free_space = iomux->connections[fd]->bufsize - iomux->connections[fd]->outlen;
     int wlen = (len > free_space)?free_space:len;
 
     if (wlen) {
@@ -772,7 +781,7 @@ int iomux_write_buffer(iomux_t *iomux, int fd)
     int len = 0;
     MUTEX_LOCK(iomux);
     if (iomux->connections[fd])
-        len = IOMUX_CONNECTION_BUFSIZE-iomux->connections[fd]->outlen;
+        len = iomux->connections[fd]->bufsize - iomux->connections[fd]->outlen;
     MUTEX_UNLOCK(iomux);
     return len;
 }
@@ -791,6 +800,10 @@ iomux_destroy(iomux_t *iomux)
         free(iomux->lock);
     }
     bh_destroy(iomux->timeouts);
+    free(iomux->connections);
+#if defined(HAVE_EPOLL) || defined(HAVE_KQUEUE)
+    free(iomux->events);
+#endif
     free(iomux);
 }
 
@@ -847,7 +860,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         if (!iomux->connections[i])
             continue;
         if (iomux->connections[i]->cbs.mux_output) {
-            int maxlen = IOMUX_CONNECTION_BUFSIZE - iomux->connections[i]->outlen;
+            int maxlen = iomux->connections[i]->bufsize - iomux->connections[i]->outlen;
             unsigned char data[maxlen];
             int len = maxlen;
             iomux->connections[i]->cbs.mux_output(iomux, i, data, &len,
@@ -883,7 +896,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     MUTEX_UNLOCK(iomux);
     int cnt = 0;
     if (n > 0) {
-        cnt = kevent(iomux->kfd, iomux->events, n, iomux->events, IOMUX_CONNECTIONS_MAX * 2, tv ? &ts : NULL);
+        cnt = kevent(iomux->kfd, iomux->events, n, iomux->events, iomux->maxconnections * 2, tv ? &ts : NULL);
     } else if (tv) {
         struct timeval tv_select = { 0, 0 };
         if (tv)
@@ -950,7 +963,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         if (!iomux->connections[i])
             continue;
         if (iomux->connections[i]->cbs.mux_output) {
-            int maxlen = IOMUX_CONNECTION_BUFSIZE - iomux->connections[i]->outlen;
+            int maxlen = iomux->connections[i]->bufsize - iomux->connections[i]->outlen;
             unsigned char data[maxlen];
             int len = maxlen;
             iomux->connections[i]->cbs.mux_output(iomux, i, data, &len,
@@ -1062,7 +1075,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             // always register managed fds for reading (even if 
             // no mux_input callbacks is present) to detect EOF.
             if (conn->cbs.mux_output) {
-                int maxsize = IOMUX_CONNECTION_BUFSIZE - iomux->connections[fd]->outlen;
+                int maxsize = iomux->connections[fd]->bufsize - iomux->connections[fd]->outlen;
                 unsigned char data[maxsize];
                 int len = maxsize;
                 iomux->connections[fd]->cbs.mux_output(iomux, fd, data, &len,

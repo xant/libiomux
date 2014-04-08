@@ -163,8 +163,7 @@ static void *tee_run(void *arg) {
 iomtee_t *iomtee_open(int *vfd, int num_fds, ...)
 {
     iomtee_t *tee = calloc(1, sizeof(iomtee_t));
-    tee->iomux = iomux_create();
-    iomux_set_threadsafe(tee->iomux, 1);
+    tee->iomux = iomux_create(0, 0, 1);
     int rc = pipe(tee->pipe);
     if (rc != 0) {
         fprintf(stderr, "Can't create pipe : %s\n", strerror(errno));
