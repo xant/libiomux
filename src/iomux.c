@@ -1061,11 +1061,11 @@ void
 iomux_run(iomux_t *iomux, struct timeval *tv_default)
 {
     int fd;
-    fd_set rin, rout;
+    fd_set rin[iomux->maxconnections/1024], rout[iomux->maxconnections/1024];
     int maxfd = iomux->minfd;;
 
-    FD_ZERO(&rin);
-    FD_ZERO(&rout);
+    memset(&rin, 0, sizeof(rin));
+    memset(&rout, 0, sizeof(rout));
 
     MUTEX_LOCK(iomux);
 
@@ -1089,13 +1089,13 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 }
             }
 
-            FD_SET(fd, &rin);
+            FD_SET(fd, &rin[0]);
             if (fd > maxfd)
                 maxfd = fd;
 
             if (conn->outlen) {
                 // output pending data
-                FD_SET(fd, &rout);
+                FD_SET(fd, &rout[0]);
                 if (fd > maxfd)
                     maxfd = fd;
             }
@@ -1115,7 +1115,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         memcpy(&tv_select, tv, sizeof(tv_select));
 
     MUTEX_UNLOCK(iomux);
-    int rc = select(maxfd+1, &rin, &rout, NULL, tv ? &tv_select : NULL);
+    int rc = select(maxfd+1, &rin[0], &rout[0], NULL, tv ? &tv_select : NULL);
     MUTEX_LOCK(iomux);
     switch (rc) {
     case -1:
@@ -1148,7 +1148,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 iomux_connection_callback_t mux_connection = conn->cbs.mux_connection;
                 iomux_input_callback_t mux_input = conn->cbs.mux_input;
                 void *priv = conn->cbs.priv;
-                if (FD_ISSET(fd, &rin)) {
+                if (FD_ISSET(fd, &rin[0])) {
                     // check if this is a listening socket
                     if ((iomux->connections[fd]->flags&IOMUX_CONNECTION_SERVER) == (IOMUX_CONNECTION_SERVER)) {
                         iomux_accept_connections_fd(iomux, fd, mux_connection, priv);
@@ -1159,7 +1159,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 if (!iomux->connections[fd]) // connection has been closed/removed
                     continue;
 
-                if (FD_ISSET(fd, &rout)) {
+                if (FD_ISSET(fd, &rout[0])) {
                     iomux_write_fd(iomux, fd, priv);
                 }
             }
