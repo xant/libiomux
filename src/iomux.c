@@ -957,7 +957,6 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
     MUTEX_LOCK(iomux);
 
-    int num_fds = iomux->maxfd - iomux->minfd + 1;
     int i;
     for (i = iomux->minfd; i <= iomux->maxfd; i++) {
         if (!iomux->connections[i])
@@ -969,6 +968,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             iomux->connections[i]->cbs.mux_output(iomux, i, data, &len,
                                                   iomux->connections[i]->cbs.priv);
 
+            // NOTE: the output callback might have removed the fd from the mux
             if (!iomux->connections[i])
                 continue;
 
@@ -999,6 +999,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
     int epoll_waiting_time = tv ? ((tv->tv_sec * 1000) + (tv->tv_usec / 1000)) : -1;
 
+    int num_fds = iomux->maxfd - iomux->minfd + 1;
     int n = 0;
     if (num_fds > 0) {
         n = epoll_wait(iomux->efd, iomux->events, num_fds, epoll_waiting_time);

@@ -1,2 +1,10 @@
+- use a balanced binary tree to store the managed filedescriptors to avoid
+  iterating from minfd up to maxfd at every iomux_run() call.
+  When the connection rate is high the distance between filedescriptors can be high 
+  leading to many 'holes' in the connections array and longer iterations which simply waste time.
+  The binary tree can be mantained in iomux_add() and iomux_remove() and iomux_run() can simply
+  walk the tree when needs to iterate over all the connections to create the events array used by
+  epoll/kqueue (or the fd_sets used by select)
+  
 - check for pending input/output when a new fd is added to the mux (via iomux_add())
   instead of waiting for the next iomux_run() cycle before the new fd is taken into account
