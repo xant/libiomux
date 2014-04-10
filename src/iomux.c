@@ -497,8 +497,9 @@ iomux_read_fd(iomux_t *iomux, int fd, iomux_input_callback_t mux_input, void *pr
     if (rb == -1) {
         if (errno != EINTR && errno != EAGAIN) {
             // don't output warnings if the filedescriptor has been closed
-            // without informing the iomux and we detect it only now
-            if (errno != EBADF)
+            // without informing the iomux or if the connection has been
+            // dropped by the peer
+            if (errno != EBADF && errno != ECONNRESET)
                 fprintf(stderr, "read on fd %d failed: %s\n", fd, strerror(errno));
             iomux_close(iomux, fd);
         }
@@ -814,12 +815,11 @@ iomux_clear(iomux_t *iomux)
     iomux_timeout_t *timeout = NULL;
 
     MUTEX_LOCK(iomux);
-    for (fd = iomux->maxfd; fd >= iomux->minfd; fd--)
+    for (fd = iomux->maxfd; fd >= iomux->minfd; fd--) {
         if (iomux->connections[fd]) {
-            MUTEX_UNLOCK(iomux);
             iomux_close(iomux, fd);
-            MUTEX_LOCK(iomux);
         }
+    }
 
     void *timeout_ptr = NULL;
     while (bh_delete_minimum(iomux->timeouts, &timeout_ptr, NULL) == 0) {
@@ -1082,7 +1082,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 iomux->connections[fd]->cbs.mux_output(iomux, fd, data, &len,
                                                       iomux->connections[fd]->cbs.priv);
                 if (!iomux->connections[fd])
-		    continue;
+                    continue;
 
                 if (len) {
                     memmove(iomux->connections[fd]->outbuf + iomux->connections[fd]->outlen, data, len);
