@@ -390,12 +390,6 @@ bh_delete_minimum(bh_t *bh, void **value, size_t *vlen)
     if (!minitem)
         return -1;
 
-    if (minitem->num_children) {
-        int child_index = binomial_tree_node_find_min_child(minitem);
-        TAILQ_INSERT_BEFORE(minitem, minitem->children[child_index], next);
-    }
-    TAILQ_REMOVE(&bh->trees, minitem, next);
-
     if (value)
         *value = minitem->value;
     if (vlen)
@@ -403,7 +397,8 @@ bh_delete_minimum(bh_t *bh, void **value, size_t *vlen)
 
     binomial_tree_node_destroy(minitem);
 
-    UPDATE_HEAD(bh);
+    if (bh->head == minitem)
+        UPDATE_HEAD(bh);
 
     return 0;
 }
@@ -422,10 +417,10 @@ bh_delete_maximum(bh_t *bh, void **value, size_t *vlen)
     if (vlen)
         *vlen = maxitem->vlen;
 
-    TAILQ_REMOVE(&bh->trees, maxitem, next);
     binomial_tree_node_destroy(maxitem);
 
-    UPDATE_HEAD(bh);
+    if (bh->head == maxitem)
+        UPDATE_HEAD(bh);
 
     return 0;
 }
