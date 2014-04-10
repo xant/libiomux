@@ -27,6 +27,7 @@ struct __iomtee_s {
     int blen;
     int pipe[2];
     pthread_t th;
+    int leave;
 };
 
 static int iomtee_write_buffer(iomtee_t *tee, void *data, int len)
@@ -153,9 +154,8 @@ iomtee_eof(iomux_t *iomux, int fd, void *priv)
 static void *tee_run(void *arg) {
     struct timeval tv = { 0, 50000 };
     iomtee_t *tee = (iomtee_t *)arg;
-    for (;;) {
+    while (!__sync_fetch_and_add(&tee->leave, 0)) {
         iomux_run(tee->iomux, &tv);
-        pthread_testcancel();
     }
     return NULL;
 }
@@ -245,7 +245,7 @@ void iomtee_remove_fd(iomtee_t *tee, int fd)
 
 void iomtee_close(iomtee_t *tee)
 {
-    pthread_cancel(tee->th);
+    __sync_add_and_fetch(&tee->leave, 1);
     pthread_join(tee->th, NULL);
     close(tee->pipe[0]);
     close(tee->pipe[1]);
