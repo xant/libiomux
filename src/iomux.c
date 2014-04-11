@@ -176,7 +176,7 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
 {
     iomux_connection_t *connection = NULL;
 
-    if (fd >= maxconnections)
+    if (fd >= iomux->maxconnections)
         return 0;
 
     MUTEX_LOCK(iomux);
