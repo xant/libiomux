@@ -1052,8 +1052,8 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             }
         }
     }
-    iomux_run_timeouts(iomux);
     MUTEX_UNLOCK(iomux);
+    iomux_run_timeouts(iomux);
 }
 
 #else
@@ -1167,8 +1167,8 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         }
     }
 
-    iomux_run_timeouts(iomux);
     MUTEX_UNLOCK(iomux);
+    iomux_run_timeouts(iomux);
 }
 
 #endif
