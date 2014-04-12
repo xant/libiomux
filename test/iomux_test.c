@@ -280,8 +280,8 @@ main(int argc, char **argv)
 
     ut_init(basename(argv[0]));
      
-    ut_testing("iomux_create(0, 0, 0)");
-    mux = iomux_create(0, 0, 0);
+    ut_testing("iomux_create(0, 0)");
+    mux = iomux_create(0, 0);
     if (mux)
         ut_success();
     else
@@ -361,7 +361,7 @@ main(int argc, char **argv)
     };
 
     server = open_socket("localhost", TEST_SERVER_PORT);
-    mux = iomux_create(0, 0, 0);
+    mux = iomux_create(0, 0);
     iomux_add(mux, server, &cbs);
     iomux_listen(mux, server);
 

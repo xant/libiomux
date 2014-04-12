@@ -106,7 +106,7 @@ typedef struct __iomux_callbacks {
  * @brief Create a new iomux handler
  * @returns A valid iomux handler
  */
-iomux_t *iomux_create(int max_connections, int bufsize, int threadsafe);
+iomux_t *iomux_create(int bufsize, int threadsafe);
 
 /**
  * @brief Add a filedescriptor to the mux

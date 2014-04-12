@@ -24,6 +24,8 @@
 
 #include <stdarg.h>
 
+#include <sys/resource.h>
+
 #if defined(HAVE_EPOLL)
 #include <sys/epoll.h>
 #elif defined(HAVE_KQUEUE)
@@ -124,7 +126,7 @@ static void set_error(iomux_t *iomux, char *fmt, ...) {
 static void iomux_handle_timeout(iomux_t *iomux, void *priv);
 
 iomux_t *
-iomux_create(int max_connections, int bufsize, int threadsafe)
+iomux_create(int bufsize, int threadsafe)
 {
     iomux_t *iomux = (iomux_t *)calloc(1, sizeof(iomux_t));
 
@@ -134,7 +136,15 @@ iomux_create(int max_connections, int bufsize, int threadsafe)
     }
 
     iomux->bufsize = (bufsize > 0) ? bufsize : IOMUX_CONNECTION_BUFSIZE_DEFAULT;
-    iomux->maxconnections = (max_connections > 0) ? max_connections : IOMUX_CONNECTIONS_MAX_DEFAULT;
+
+    struct rlimit rlim;
+    if (getrlimit(RLIMIT_NOFILE, &rlim) == 0) {
+        iomux->maxconnections = rlim.rlim_max;
+    } else {
+        fprintf(stderr, "Can't get the max number of filedescriptors: %s\n",
+                strerror(errno));
+        iomux->maxconnections = IOMUX_CONNECTIONS_MAX_DEFAULT;
+    }
 
 #if defined(HAVE_EPOLL)
     iomux->efd = epoll_create1(0);
