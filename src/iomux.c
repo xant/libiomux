@@ -883,19 +883,19 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 continue;
 
             if (len) {
-                memmove(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
+                memcpy(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
                 iomux->connections[i]->outlen += len;
                 memcpy(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
                 n += 2;
             } else {
-                memmove(&iomux->events[n], &iomux->connections[i]->event, sizeof(struct kevent));
+                memcpy(&iomux->events[n], &iomux->connections[i]->event, sizeof(struct kevent));
                 n++;
             }
         } else if (iomux->connections[i]->outlen) {
-            memmove(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
+            memcpy(&iomux->events[n], &iomux->connections[i]->event, 2 * sizeof(struct kevent));
             n += 2;
         } else {
-            memmove(&iomux->events[n], &iomux->connections[i]->event, sizeof(struct kevent));
+            memcpy(&iomux->events[n], &iomux->connections[i]->event, sizeof(struct kevent));
             n++;
         }
     }
@@ -986,7 +986,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 continue;
 
             if (len) {
-                memmove(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
+                memcpy(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
                 iomux->connections[i]->outlen += len;
             }
         } 
@@ -1098,7 +1098,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                     continue;
 
                 if (len) {
-                    memmove(iomux->connections[fd]->outbuf + iomux->connections[fd]->outlen, data, len);
+                    memcpy(iomux->connections[fd]->outbuf + iomux->connections[fd]->outlen, data, len);
                     iomux->connections[fd]->outlen += len;
                 }
             }
