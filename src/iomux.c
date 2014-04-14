@@ -139,7 +139,7 @@ iomux_create(int bufsize, int threadsafe)
 
     struct rlimit rlim;
     if (getrlimit(RLIMIT_NOFILE, &rlim) == 0) {
-        iomux->maxconnections = rlim.rlim_max;
+        iomux->maxconnections = rlim.rlim_cur;
     } else {
         fprintf(stderr, "Can't get the max number of filedescriptors: %s\n",
                 strerror(errno));
