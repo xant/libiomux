@@ -100,7 +100,7 @@ struct __iomux {
 
 #if defined(HAVE_EPOLL)
     struct epoll_event *events;
-    int efd; 
+    int efd;
 #elif defined(HAVE_KQUEUE)
     struct kevent *events;
     int kfd;
@@ -109,6 +109,8 @@ struct __iomux {
     int last_timeout_id;
 
     int num_fds;
+
+    int emfile_fd;
 
     pthread_mutex_t *lock;
 };
@@ -178,6 +180,12 @@ iomux_create(int bufsize, int threadsafe)
     }
     iomux->last_timeout_id = 0;
 
+    // NOTE : we save this file descriptor to mitigate accept() EMFILE errors
+    //        (which might be leading to inifinite loops)
+    //        Basically we keep a spare file descriptor that we close to get
+    //        below the EMFILE limit to then accept() and immediately close()
+    //        all pending connections
+    iomux->emfile_fd = open("/", O_CLOEXEC);
     return iomux;
 }
 
@@ -225,7 +233,7 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
             event.events |= EPOLLOUT;
         int rc = epoll_ctl(iomux->efd, EPOLL_CTL_ADD, fd, &event);
         if (rc == -1) {
-            fprintf(stderr, "Errors adding fd %d to epoll instance %d : %s\n", 
+            fprintf(stderr, "Errors adding fd %d to epoll instance %d : %s\n",
                     fd, iomux->efd, strerror(errno));
             free(connection);
             MUTEX_UNLOCK(iomux);
@@ -244,7 +252,7 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
             iomux->maxfd = fd;
         if (fd < iomux->minfd)
             iomux->minfd = fd;
-        
+
         memcpy(&connection->cbs, cbs, sizeof(connection->cbs));
 
         connection->inbuf = malloc(iomux->bufsize);
@@ -255,6 +263,14 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
         iomux->num_fds++;
         while (!iomux->connections[iomux->minfd] && iomux->minfd != iomux->maxfd)
             iomux->minfd++;
+
+        // if we have no emfile_fd saved, let's open one now
+        // it could have been previously closed because we
+        // reached the EMFILE condition but we were not able
+        // to open it again because some other thread go the
+        // free filedescriptor before us being able to get it back
+        if (iomux->emfile_fd == -1)
+            iomux->emfile_fd = open("/", O_CLOEXEC);
 
         MUTEX_UNLOCK(iomux);
         return 1;
@@ -279,7 +295,7 @@ iomux_remove(iomux_t *iomux, int fd)
     bzero(&event, sizeof(event));
     event.data.fd = fd;
 
-    // NOTE: events might be NULL but on linux kernels < 2.6.9 
+    // NOTE: events might be NULL but on linux kernels < 2.6.9
     //       it was required to be non-NULL even if ignored
     event.events = EPOLLIN | EPOLLOUT;
 
@@ -492,9 +508,24 @@ iomux_accept_connections_fd(iomux_t *iomux,
         if (mux_connection)
             mux_connection(iomux, newfd, priv);
     }
+    if (errno == EMFILE || errno == ENFILE) {
+        fprintf(stderr, "Maximum number of filedescriptors reached, can't accept new connections!\n");
+        MUTEX_LOCK(iomux);
+        if (iomux->emfile_fd >= 0) {
+            close(iomux->emfile_fd);
+            while((newfd = accept(fd, (struct sockaddr *)&peer, &socklen)) >= 0)
+                close(newfd); // let's signal clients we are overloaded
+            // NOTE: if some other thread got the freed filedescriptor we won't be
+            //       able to get it back. If this happens we will try saving the
+            //       emfile_fd again when performing other operations
+            //       (as iomux_add() and iomux_close())
+            iomux->emfile_fd = open("/", O_CLOEXEC);
+        }
+        MUTEX_UNLOCK(iomux);
+    }
 }
 
-static void 
+static void
 iomux_read_fd(iomux_t *iomux, int fd, iomux_input_callback_t mux_input, void *priv)
 {
     MUTEX_LOCK(iomux);
@@ -557,14 +588,14 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
 
             int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
             if (rc == -1) {
-                fprintf(stderr, "Errors modifying fd %d on epoll instance %d : %s\n", 
+                fprintf(stderr, "Errors modifying fd %d on epoll instance %d : %s\n",
                         fd, iomux->efd, strerror(errno));
             }
 #elif defined(HAVE_KQUEUE)
         EV_SET(&iomux->connections[fd]->event[1], fd, iomux->connections[fd]->kfilters[1], EV_DELETE | EV_ONESHOT, 0, 0, 0);
         MUTEX_UNLOCK(iomux);
 #endif
-        return; 
+        return;
     }
 
     char *outbuf = (char *)iomux->connections[fd]->outbuf;
@@ -592,7 +623,7 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
 
             int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
             if (rc == -1) {
-                fprintf(stderr, "Errors modifying fd %d on epoll instance %d : %s\n", 
+                fprintf(stderr, "Errors modifying fd %d on epoll instance %d : %s\n",
                         fd, iomux->efd, strerror(errno));
             }
 #elif defined(HAVE_KQUEUE)
@@ -716,7 +747,7 @@ iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
             if (errno == EBADF) {
                 iomux_close(iomux, fd);
             } else {
-                fprintf(stderr, "Errors modifying fd %d to epoll instance %d : %s\n", 
+                fprintf(stderr, "Errors modifying fd %d to epoll instance %d : %s\n",
                         fd, iomux->efd, strerror(errno));
             }
             return 0;
@@ -770,6 +801,15 @@ iomux_close(iomux_t *iomux, int fd)
     if(mux_eof)
         mux_eof(iomux, fd, priv);
 
+
+    // if we have no emfile_fd saved, let's open one now
+    // it could have been previously closed because we
+    // reached the EMFILE condition but we were not able
+    // to open it again because some other thread go the
+    // free filedescriptor before us being able to get it back
+    if (iomux->emfile_fd == -1)
+        iomux->emfile_fd = open("/", O_CLOEXEC);
+
     MUTEX_UNLOCK(iomux);
 
     return 1;
@@ -818,6 +858,7 @@ iomux_destroy(iomux_t *iomux)
 #if defined(HAVE_EPOLL) || defined(HAVE_KQUEUE)
     free(iomux->events);
 #endif
+    close(iomux->emfile_fd);
     free(iomux);
 }
 
@@ -989,7 +1030,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 memcpy(iomux->connections[i]->outbuf + iomux->connections[i]->outlen, data, len);
                 iomux->connections[i]->outlen += len;
             }
-        } 
+        }
         if (iomux->connections[i]->outlen) {
             struct epoll_event event;
             bzero(&event, sizeof(event));
@@ -998,10 +1039,10 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
             int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, i, &event);
             if (rc == -1) {
-                fprintf(stderr, "Errors modifying fd %d to epoll instance %d : %s\n", 
+                fprintf(stderr, "Errors modifying fd %d to epoll instance %d : %s\n",
                         i, iomux->efd, strerror(errno));
             }
-        } 
+        }
     }
 
 
@@ -1061,7 +1102,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
                 if (iomux->events[i].events & EPOLLOUT) {
                     iomux_write_fd(iomux, fd, priv);
-                } 
+                }
             }
         }
     }
@@ -1086,7 +1127,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
         if (iomux->connections[fd])  {
             iomux_connection_t *conn = iomux->connections[fd];
-            // always register managed fds for reading (even if 
+            // always register managed fds for reading (even if
             // no mux_input callbacks is present) to detect EOF.
             if (conn->cbs.mux_output) {
                 int maxsize = iomux->connections[fd]->bufsize - iomux->connections[fd]->outlen;
