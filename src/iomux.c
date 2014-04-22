@@ -48,6 +48,10 @@
 #define MUTEX_LOCK(__iom) if (__iom->lock) pthread_mutex_lock(__iom->lock);
 #define MUTEX_UNLOCK(__iom) if (__iom->lock) pthread_mutex_unlock(__iom->lock);
 
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
+
 void iomux_run(iomux_t *iomux, struct timeval *tv_default);
 
 int iomux_hangup = 0;
