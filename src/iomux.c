@@ -563,19 +563,16 @@ iomux_read_fd(iomux_t *iomux, int fd, iomux_input_callback_t mux_input, void *pr
         conn->inlen += rb;
          if (mux_input) {
              int len = conn->inlen;
-             unsigned char *buf = malloc(len);
-             memcpy(buf, conn->inbuf, len);
-             int mb = mux_input(iomux, fd, buf, len, priv);
+             int mb = mux_input(iomux, fd, conn->inbuf, len, priv);
              if (iomux->connections[fd] == conn && iomux->connections[fd]->inlen == conn->inlen)
              {
                  if (mb == conn->inlen) {
                      conn->inlen = 0;
                  } else if (mb) {
-                     memcpy(conn->inbuf, buf + mb, len - mb);
+                     memmove(conn->inbuf, conn->inbuf + mb, len - mb);
                      conn->inlen -= mb;
                  }
              }
-             free(buf);
          }
     }
     MUTEX_UNLOCK(iomux);
@@ -925,15 +922,17 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     TAILQ_FOREACH_SAFE(connection, &iomux->connections_list, next, tmp) {
         int fd = connection->fd;
         if (connection->cbs.mux_output) {
+            int len = 0;
             int maxlen = connection->bufsize - connection->outlen;
             unsigned char data[maxlen];
-            int len = maxlen;
-            connection->cbs.mux_output(iomux, fd, data, &len,
-                                       connection->cbs.priv);
+            if (maxlen > 0) {
+                len = maxlen;
+                connection->cbs.mux_output(iomux, fd, data, &len,
+                                           connection->cbs.priv);
 
-            if (!iomux->connections[fd])
-                continue;
-
+                if (!iomux->connections[fd])
+                    continue;
+            }
             if (len) {
                 memcpy(connection->outbuf + connection->outlen, data, len);
                 connection->outlen += len;
@@ -1027,17 +1026,18 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     TAILQ_FOREACH_SAFE(connection, &iomux->connections_list, next, tmp) {
         int fd = connection->fd;
         if (connection->cbs.mux_output) {
+            int len = 0;
             int maxlen = connection->bufsize - connection->outlen;
-            unsigned char data[maxlen];
-            int len = maxlen;
-            connection->cbs.mux_output(iomux, fd, data, &len,
-                                       connection->cbs.priv);
+            if (maxlen) {
+                unsigned char data[maxlen];
+                len = maxlen;
+                connection->cbs.mux_output(iomux, fd, data, &len,
+                                           connection->cbs.priv);
 
-            // NOTE: the output callback might have removed the fd from the mux
-            if (!iomux->connections[fd])
-                continue;
+                // NOTE: the output callback might have removed the fd from the mux
+                if (!iomux->connections[fd])
+                    continue;
 
-            if (len) {
                 memcpy(connection->outbuf + connection->outlen, data, len);
                 connection->outlen += len;
             }
@@ -1141,15 +1141,16 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         // always register managed fds for reading (even if
         // no mux_input callbacks is present) to detect EOF.
         if (connection->cbs.mux_output) {
+            int len = 0;
             int maxsize = connection->bufsize - connection->outlen;
-            unsigned char data[maxsize];
-            int len = maxsize;
-            connection->cbs.mux_output(iomux, fd, data, &len,
-                                       connection->cbs.priv);
-            if (!iomux->connections[fd])
-                continue;
+            if (maxsize) {
+                unsigned char data[maxsize];
+                len = maxsize;
+                connection->cbs.mux_output(iomux, fd, data, &len,
+                                           connection->cbs.priv);
+                if (!iomux->connections[fd])
+                    continue;
 
-            if (len) {
                 memcpy(connection->outbuf + connection->outlen, data, len);
                 connection->outlen += len;
             }
