@@ -268,6 +268,9 @@ void iomux_run(iomux_t *iomux, struct timeval *timeout);
  */
 int iomux_write(iomux_t *iomux, int fd, const void *buf, int len);
 
+int iomux_set_output_callback(iomux_t *iomux, int fd, iomux_output_callback_t cb);
+int iomux_unset_output_callback(iomux_t *iomux, int fd);
+
 /**
  * @brief Close a file handled by the iomux
  * @param iomux A valid iomux handler

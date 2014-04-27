@@ -907,6 +907,33 @@ int iomux_num_fds(iomux_t *iomux)
     return num_fds;
 }
 
+int
+iomux_set_output_callback(iomux_t *iomux, int fd, iomux_output_callback_t cb)
+{
+    MUTEX_LOCK(iomux);
+    if (!iomux->connections[fd]) {
+        MUTEX_UNLOCK(iomux);
+        return 0;
+    }
+    iomux->connections[fd]->cbs.mux_output = cb;
+    MUTEX_UNLOCK(iomux);
+    return 1;
+}
+
+int
+iomux_unset_output_callback(iomux_t *iomux, int fd)
+{
+    MUTEX_LOCK(iomux);
+    if (!iomux->connections[fd]) {
+        MUTEX_UNLOCK(iomux);
+        return 0;
+    }
+    iomux_output_callback_t prev = iomux->connections[fd]->cbs.mux_output;
+    iomux->connections[fd]->cbs.mux_output = NULL;
+    MUTEX_UNLOCK(iomux);
+    return prev ? 1 : 0;
+}
+
 #if defined(HAVE_KQUEUE)
 void
 iomux_run(iomux_t *iomux, struct timeval *tv_default)
