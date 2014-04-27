@@ -620,7 +620,7 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
         MUTEX_LOCK(iomux);
         iomux->connections[fd]->outlen -= wb;
         if (iomux->connections[fd]->outlen) { // shift data if we didn't write it all at once
-            memmove(iomux->connections[fd]->outbuf, &iomux->connections[fd]->outbuf[wb], iomux->connections[fd]->outlen);
+            memmove(iomux->connections[fd]->outbuf, &iomux->connections[fd]->outbuf[wb], iomux->connections[fd]->outlen - wb);
         } else {
 #if defined(HAVE_EPOLL)
             // let's unregister this fd from EPOLLOUT events (seems nothing needs to be sent anymore)
