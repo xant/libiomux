@@ -1153,7 +1153,8 @@ void
 iomux_run(iomux_t *iomux, struct timeval *tv_default)
 {
     int fd;
-    fd_set rin[iomux->maxconnections/1024], rout[iomux->maxconnections/1024];
+    int fdset_size = iomux->maxconnections > 1024 ? iomux->maxconnections/1024 : 1;
+    fd_set rin[fdset_size], rout[fdset_size];
     int maxfd = iomux->minfd;;
 
     memset(&rin, 0, sizeof(rin));
