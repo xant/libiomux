@@ -621,7 +621,6 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
         return;
     }
 
-    TAILQ_REMOVE(&iomux->connections[fd]->output_queue, chunk, next); 
     char *outbuf = chunk->data;
     int outlen = chunk->len;
 
@@ -635,8 +634,17 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
         }
     } else {
         MUTEX_LOCK(iomux);
-        iomux_output_chunk_t *next_chunk = TAILQ_FIRST(&iomux->connections[fd]->output_queue);
-        if (!next_chunk) {
+        outlen -= wb;
+        if (!outlen) {
+            TAILQ_REMOVE(&iomux->connections[fd]->output_queue, chunk, next); 
+            if (chunk->free)
+                free(chunk->data);
+            free(chunk);
+            chunk = TAILQ_FIRST(&iomux->connections[fd]->output_queue);
+        } else {
+            memmove(chunk->data, chunk->data + wb, outlen);
+        }
+        if (!chunk) {
 #if defined(HAVE_EPOLL)
             // let's unregister this fd from EPOLLOUT events (seems nothing needs to be sent anymore)
             struct epoll_event event = { 0 };
@@ -653,11 +661,6 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
 #endif
         }
         MUTEX_UNLOCK(iomux);
-    }
-    if (chunk) {
-        if (chunk->free)
-            free(chunk->data);
-        free(chunk);
     }
 }
 
