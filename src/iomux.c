@@ -860,16 +860,10 @@ iomux_close(iomux_t *iomux, int fd)
 int
 iomux_isempty(iomux_t *iomux)
 {
-    int fd;
     MUTEX_LOCK(iomux);
-    for (fd = iomux->minfd; fd <= iomux->maxfd; fd++) {
-        if (iomux->connections[fd]) {
-            MUTEX_UNLOCK(iomux);
-            return 0;
-        }
-    }
+    int empty = (TAILQ_FIRST(&iomux->connections_list) == NULL);
     MUTEX_UNLOCK(iomux);
-    return 1;
+    return empty;
 }
 
 int iomux_write_buffer(iomux_t *iomux, int fd)
