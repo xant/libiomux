@@ -71,10 +71,10 @@ iomtee_read_buffer(iomtee_t *tee, iomtee_fd_t *tfd, void *out, int len)
     return read_len;
 }
 
-static void
+static int
 iomtee_output(iomux_t *iomux,
               int fd,
-              unsigned char *out,
+              unsigned char **out,
               int *len,
               void *priv)
 {
@@ -92,11 +92,15 @@ iomtee_output(iomux_t *iomux,
     if (!tfd) {
         // TODO - Error Messages
         *len = 0;
-        return;
+        return IOMUX_OUTPUT_MODE_NONE;
     }
     
-    int rb = iomtee_read_buffer(tee, tfd, out, *len);
-    *len = rb;
+    *len = abs(tee->wofx - tfd->rofx);
+    *out = malloc(*len);
+    int rb = iomtee_read_buffer(tee, tfd, *out, *len);
+    if (rb != *len)
+        *len = rb;
+    return IOMUX_OUTPUT_MODE_FREE;
 }
 
 static int
@@ -108,7 +112,7 @@ iomtee_input(iomux_t *iomux, int fd, unsigned char *data, int len, void *priv)
     TAILQ_FOREACH(tee_fd, &tee->fds, next) {
         if (tee_fd->fd == -1)
             continue; // skip closed receivers
-        int wb = iomux_write(iomux, tee_fd->fd, data, len, -1);
+        int wb = iomux_write(iomux, tee_fd->fd, data, len, IOMUX_OUTPUT_MODE_COPY);
         if (wb < len) {
             if (wb < min_write)
                 min_write = wb;

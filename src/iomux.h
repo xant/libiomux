@@ -22,6 +22,12 @@ typedef void (*iomux_cb_t)(iomux_t *iomux, void *priv);
 
 typedef uint64_t iomux_timeout_id_t;
 
+typedef enum {
+    IOMUX_OUTPUT_MODE_COPY = -1,
+    IOMUX_OUTPUT_MODE_FREE =  1,
+    IOMUX_OUTPUT_MODE_NONE =  0
+} iomux_output_mode_t;
+
 /**
  * @brief Handle input coming from a managed filedescriptor
  * @param iomux The iomux handle
@@ -41,17 +47,18 @@ typedef int (*iomux_input_callback_t)(iomux_t *iomux, int fd, unsigned char *dat
  * @brief Callback called to poll for data to be written to a managed filedescriptor
  * @param iomux The iomux handle
  * @param fd The fd the timer relates to
- * @param data A pointer to where to store data which is available for writing
- * @param len On input it holds the size of the memory pointed by data;
- *            On output it MUST be set to the actual size of the data
- *            copied to the out pointer
+ * @param data A reference to the pointer to where the data is stored
+ * @param len  A pointer to where to store length of the data
  * @param priv the private pointer registered with the callbacks
+ * @return the iomux_output_mode which determines if the data has to be copied,
+ *         freed or ignored (in which case the caller needs to take care of releasing the underlying memory)
  *
  * @note If no data is available for writing and hence has been copied
  *       to the data pointer, the callback MUST ensure setting *len to zero
  *       so that the iomux doesn't try sending garbage data
  */
-typedef void (*iomux_output_callback_t)(iomux_t *iomux, int fd, unsigned char *data, int *len, void *priv);
+typedef iomux_output_mode_t (*iomux_output_callback_t)(iomux_t *iomux, int fd, unsigned char **data, int *len, void *priv);
+
 
 /*
  * @brief Callback called when a timeout registered using iomux_set_timeout() expires
@@ -264,9 +271,11 @@ void iomux_run(iomux_t *iomux, struct timeval *timeout);
  * @param fd The fd we want to write to
  * @param buf The buffer to write
  * @param len The length of the buffer
+ * @param mode the iomux_output_mode which determines if the data has to be copied,
+ *             freed or ignored (in which case the caller needs to take care of releasing the underlying memory)
  * @returns The number of written bytes
  */
-int iomux_write(iomux_t *iomux, int fd, unsigned char *data, int len, int mode);
+int iomux_write(iomux_t *iomux, int fd, unsigned char *data, int len, iomux_output_mode_t mode);
 
 int iomux_set_output_callback(iomux_t *iomux, int fd, iomux_output_callback_t cb);
 int iomux_unset_output_callback(iomux_t *iomux, int fd);

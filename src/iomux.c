@@ -758,11 +758,12 @@ int
 iomux_write(iomux_t *iomux, int fd, unsigned char *buf, int len, int mode)
 {
     iomux_output_chunk_t *chunk = calloc(1, sizeof(iomux_output_chunk_t));
-    chunk->free = (mode != 0);
-    if (mode == -1) {
+    chunk->free = (mode != IOMUX_OUTPUT_MODE_NONE);
+    if (mode == IOMUX_OUTPUT_MODE_COPY) {
         chunk->data = malloc(len);
         memcpy(chunk->data, buf, len);
     } else {
+        // TODO - check for unknown output modes
         chunk->data = buf;
     }
     chunk->len = len;
@@ -987,27 +988,29 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             memcpy(&iomux->events[n], &connection->event, 2 * sizeof(struct kevent));
             n += 2;
         } else if (connection->cbs.mux_output) {
-            int len = IOMUX_CONNECTION_BUFSIZE_DEFAULT;
-            unsigned char *data = malloc(len);
-            connection->cbs.mux_output(iomux, fd, data, &len,
-                                       connection->cbs.priv);
+            int len = 0;
+            unsigned char *data = NULL;
+            int mode = connection->cbs.mux_output(iomux, fd, &data, &len, connection->cbs.priv);
 
             if (!iomux->connections[fd]) {
                 free(data);
                 continue;
             }
 
-            if (len) {
-                data = realloc(data, len);
+            if (data) {
                 iomux_output_chunk_t *chunk = calloc(1, sizeof(iomux_output_chunk_t));
-                chunk->data = data;
+                if (mode == IOMUX_OUTPUT_MODE_COPY) {
+                    chunk->data = malloc(len);
+                    memcpy(chunk->data, data, len);
+                } else {
+                    chunk->data = data;
+                }
                 chunk->len = len;
-                chunk->free = 1;
+                chunk->free = (mode != IOMUX_OUTPUT_MODE_NONE);
                 TAILQ_INSERT_TAIL(&connection->output_queue, chunk, next);
                 memcpy(&iomux->events[n], connection->event, 2 * sizeof(struct kevent));
                 n += 2;
             } else {
-                free(data);
                 memcpy(&iomux->events[n], &connection->event, sizeof(struct kevent));
                 n++;
             }
@@ -1094,10 +1097,9 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         iomux_output_chunk_t *chunk = TAILQ_FIRST(&connection->output_queue);
 
         if (!chunk && connection->cbs.mux_output) {
-            int len = IOMUX_CONNECTION_BUFSIZE_DEFAULT;
-            unsigned char *data = malloc(len);
-            connection->cbs.mux_output(iomux, fd, data, &len,
-                                       connection->cbs.priv);
+            int len = 0;
+            unsigned char *data = NULL;
+            int mode = connection->cbs.mux_output(iomux, fd, &data, &len, connection->cbs.priv);
 
             // NOTE: the output callback might have removed the fd from the mux
             if (!iomux->connections[fd]) {
@@ -1105,11 +1107,15 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 continue;
             }
 
-            if (len) {
-                data = realloc(data, len);
+            if (data) {
                 chunk = calloc(1, sizeof(iomux_output_chunk_t));
-                chunk->free = 1;
-                chunk->data = data;
+                if (mode == IOMUX_OUTPUT_MODE_COPY) {
+                    chunk->data = malloc(len);
+                    memcpy(chunk->data, data, len);
+                } else {
+                    chunk->data = data;
+                }
+                chunk->free = (mode != IOMUX_OUTPUT_MODE_NONE);
                 chunk->len = len;
                 TAILQ_INSERT_TAIL(&connection->output_queue, chunk, next);
             }
@@ -1216,10 +1222,9 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         // always register managed fds for reading (even if
         // no mux_input callbacks is present) to detect EOF.
         if (!chunk && connection->cbs.mux_output) {
-            int len = IOMUX_CONNECTION_BUFSIZE_DEFAULT;
-            unsigned char *data = malloc(len);
-            connection->cbs.mux_output(iomux, fd, data, &len,
-                                       connection->cbs.priv);
+            int len = 0;
+            unsigned char *data = NULL;
+            int mode = connection->cbs.mux_output(iomux, fd, &data, &len, connection->cbs.priv);
 
             // NOTE: the output callback might have removed the fd from the mux
             if (!iomux->connections[fd]) {
@@ -1227,11 +1232,15 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
                 continue;
             }
 
-            if (len) {
-                data = realloc(data, len);
+            if (data) {
                 chunk = calloc(1, sizeof(iomux_output_chunk_t));
-                chunk->free = 1;
-                chunk->data = data;
+                if (mode == IOMUX_OUTPUT_MODE_COPY) {
+                    chunk->data = malloc(len);
+                    memcpy(chunk->data, data, len);
+                } else {
+                    chunk->data = data;
+                }
+                chunk->free = (mode != IOMUX_OUTPUT_MODE_NONE);
                 chunk->len = len;
                 TAILQ_INSERT_TAIL(&connection->output_queue, chunk, next);
             }
