@@ -60,6 +60,7 @@ typedef struct __iomux_output_chunk_s {
     unsigned char *data;
     int len;
     int free;
+    int offset;
     TAILQ_ENTRY(__iomux_output_chunk_s) next;
 } iomux_output_chunk_t;
 
@@ -621,8 +622,8 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
         return;
     }
 
-    char *outbuf = chunk->data;
-    int outlen = chunk->len;
+    char *outbuf = chunk->data + chunk->offset;
+    int outlen = chunk->len - chunk->offset;
 
     MUTEX_UNLOCK(iomux);
 
@@ -642,7 +643,7 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
             free(chunk);
             chunk = TAILQ_FIRST(&iomux->connections[fd]->output_queue);
         } else {
-            memmove(chunk->data, chunk->data + wb, outlen);
+            chunk->offset += wb;
         }
         if (!chunk) {
 #if defined(HAVE_EPOLL)
