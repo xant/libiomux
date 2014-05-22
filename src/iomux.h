@@ -266,7 +266,7 @@ void iomux_run(iomux_t *iomux, struct timeval *timeout);
  * @param len The length of the buffer
  * @returns The number of written bytes
  */
-int iomux_write(iomux_t *iomux, int fd, const void *buf, int len);
+int iomux_write(iomux_t *iomux, int fd, unsigned char *data, int len, int mode);
 
 int iomux_set_output_callback(iomux_t *iomux, int fd, iomux_output_callback_t cb);
 int iomux_unset_output_callback(iomux_t *iomux, int fd);

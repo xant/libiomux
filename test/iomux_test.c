@@ -308,7 +308,7 @@ main(int argc, char **argv)
     ut_validate_int(iomux_add(mux, client, &callbacks), 1);
 
     ut_testing("iomux_write(mux, client, %s, %d)", TEST_STRING, strlen(TEST_STRING));
-    ut_validate_int(iomux_write(mux, client, TEST_STRING, strlen(TEST_STRING)), strlen(TEST_STRING));
+    ut_validate_int(iomux_write(mux, client, TEST_STRING, strlen(TEST_STRING), 0), strlen(TEST_STRING));
 
     ut_testing("iomux_input_callback() callback");
     iomux_loop(mux, NULL);

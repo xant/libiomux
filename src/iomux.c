@@ -56,13 +56,22 @@ void iomux_run(iomux_t *iomux, struct timeval *tv_default);
 
 int iomux_hangup = 0;
 
+typedef struct __iomux_output_chunk_s {
+    unsigned char *data;
+    int len;
+    int free;
+    TAILQ_ENTRY(__iomux_output_chunk_s) next;
+} iomux_output_chunk_t;
+
 //! \brief iomux connection strucure
 typedef struct __iomux_connection_s {
     int fd;
     uint32_t flags;
     iomux_callbacks_t cbs;
     unsigned char *inbuf;
-    unsigned char *outbuf;
+    int output_len;
+    TAILQ_HEAD(, __iomux_output_chunk_s) output_queue;
+
     int bufsize;
     int eof;
     int inlen;
@@ -263,7 +272,7 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
         memcpy(&connection->cbs, cbs, sizeof(connection->cbs));
 
         connection->inbuf = malloc(iomux->bufsize);
-        connection->outbuf = malloc(iomux->bufsize);
+        TAILQ_INIT(&connection->output_queue);
         connection->bufsize = iomux->bufsize;
         connection->fd = fd;
 
@@ -318,7 +327,14 @@ iomux_remove(iomux_t *iomux, int fd)
 #endif
     TAILQ_REMOVE(&iomux->connections_list, iomux->connections[fd], next);
     free(iomux->connections[fd]->inbuf);
-    free(iomux->connections[fd]->outbuf);
+    iomux_output_chunk_t *chunk = TAILQ_FIRST(&iomux->connections[fd]->output_queue);
+    while (chunk) {
+        TAILQ_REMOVE(&iomux->connections[fd]->output_queue, chunk, next);
+        if (chunk->free)
+            free(chunk->data);
+        free(chunk);
+        chunk = TAILQ_FIRST(&iomux->connections[fd]->output_queue);
+    }
     free(iomux->connections[fd]);
     iomux->connections[fd] = NULL;
     iomux->num_fds--;
@@ -578,13 +594,13 @@ iomux_read_fd(iomux_t *iomux, int fd, iomux_input_callback_t mux_input, void *pr
     MUTEX_UNLOCK(iomux);
 }
 
-// NOTE - this MUST be called while the lock is NOT retained
 static void
 iomux_write_fd(iomux_t *iomux, int fd, void *priv)
 {
     MUTEX_LOCK(iomux);
 
-    if (!iomux->connections[fd] || !iomux->connections[fd]->outlen) {
+    iomux_output_chunk_t *chunk = TAILQ_FIRST(&iomux->connections[fd]->output_queue);
+    if (!iomux->connections[fd] || !chunk) {
 #if defined(HAVE_EPOLL)
             MUTEX_UNLOCK(iomux);
             // let's unregister this fd from EPOLLOUT events (seems nothing needs to be sent anymore)
@@ -605,8 +621,9 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
         return;
     }
 
-    char *outbuf = (char *)iomux->connections[fd]->outbuf;
-    int outlen = iomux->connections[fd]->outlen;
+    TAILQ_REMOVE(&iomux->connections[fd]->output_queue, chunk, next); 
+    char *outbuf = chunk->data;
+    int outlen = chunk->len;
 
     MUTEX_UNLOCK(iomux);
 
@@ -618,10 +635,8 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
         }
     } else {
         MUTEX_LOCK(iomux);
-        iomux->connections[fd]->outlen -= wb;
-        if (iomux->connections[fd]->outlen) { // shift data if we didn't write it all at once
-            memmove(iomux->connections[fd]->outbuf, &iomux->connections[fd]->outbuf[wb], iomux->connections[fd]->outlen - wb);
-        } else {
+        iomux_output_chunk_t *next_chunk = TAILQ_FIRST(&iomux->connections[fd]->output_queue);
+        if (!next_chunk) {
 #if defined(HAVE_EPOLL)
             // let's unregister this fd from EPOLLOUT events (seems nothing needs to be sent anymore)
             struct epoll_event event = { 0 };
@@ -638,6 +653,11 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
 #endif
         }
         MUTEX_UNLOCK(iomux);
+    }
+    if (chunk) {
+        if (chunk->free)
+            free(chunk->data);
+        free(chunk);
     }
 }
 
@@ -731,44 +751,48 @@ iomux_end_loop(iomux_t *iomux)
 }
 
 int
-iomux_write(iomux_t *iomux, int fd, const void *buf, int len)
+iomux_write(iomux_t *iomux, int fd, unsigned char *buf, int len, int mode)
 {
+    iomux_output_chunk_t *chunk = calloc(1, sizeof(iomux_output_chunk_t));
+    chunk->free = (mode != 0);
+    if (mode == -1) {
+        chunk->data = malloc(len);
+        memcpy(chunk->data, buf, len);
+    } else {
+        chunk->data = buf;
+    }
+    chunk->len = len;
+
     MUTEX_LOCK(iomux);
 
     if (!iomux->connections[fd])
         return 0;
 
-    int free_space = iomux->connections[fd]->bufsize - iomux->connections[fd]->outlen;
-    int wlen = (len > free_space)?free_space:len;
+    TAILQ_INSERT_TAIL(&iomux->connections[fd]->output_queue, chunk, next);
 
-    if (wlen) {
 #if defined(HAVE_EPOLL)
-        struct epoll_event event;
-        bzero(&event, sizeof(event));
-        event.data.fd = fd;
-        event.events = EPOLLIN | EPOLLOUT;
+    struct epoll_event event;
+    bzero(&event, sizeof(event));
+    event.data.fd = fd;
+    event.events = EPOLLIN | EPOLLOUT;
 
-        int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
-        if (rc == -1) {
-            MUTEX_UNLOCK(iomux);
-            if (errno == EBADF) {
-                iomux_close(iomux, fd);
-            } else {
-                fprintf(stderr, "Errors modifying fd %d to epoll instance %d : %s\n",
-                        fd, iomux->efd, strerror(errno));
-            }
-            return 0;
+    int rc = epoll_ctl(iomux->efd, EPOLL_CTL_MOD, fd, &event);
+    if (rc == -1) {
+        MUTEX_UNLOCK(iomux);
+        if (errno == EBADF) {
+            iomux_close(iomux, fd);
+        } else {
+            fprintf(stderr, "Errors modifying fd %d to epoll instance %d : %s\n",
+                    fd, iomux->efd, strerror(errno));
         }
-#elif defined(HAVE_KQUEUE)
-        EV_SET(&iomux->connections[fd]->event[1], fd, iomux->connections[fd]->kfilters[1], EV_ADD | EV_ONESHOT, 0, 0, 0);
-#endif
-        memcpy(iomux->connections[fd]->outbuf+iomux->connections[fd]->outlen,
-                buf, wlen);
-        iomux->connections[fd]->outlen += wlen;
+        return 0;
     }
+#elif defined(HAVE_KQUEUE)
+    EV_SET(&iomux->connections[fd]->event[1], fd, iomux->connections[fd]->kfilters[1], EV_ADD | EV_ONESHOT, 0, 0, 0);
+#endif
 
     MUTEX_UNLOCK(iomux);
-    return wlen;
+    return len;
 }
 
 int
@@ -784,19 +808,25 @@ iomux_close(iomux_t *iomux, int fd)
 
     if (fcntl(fd, F_GETFD, 0) != -1 && conn->outlen) { // there is pending data
         int retries = 0;
-        while (conn->outlen && retries <= IOMUX_FLUSH_MAXRETRIES) {
-            int wb = write(fd, conn->outbuf, conn->outlen);
+        iomux_output_chunk_t *chunk = TAILQ_FIRST(&conn->output_queue);
+        while (chunk && retries <= IOMUX_FLUSH_MAXRETRIES) {
+            int wb = write(fd, chunk->data, chunk->len);
             if (wb == -1) {
-                if (errno == EINTR || errno == EAGAIN)
+                if (errno == EINTR || errno == EAGAIN) {
                     retries++;
-                else
+                    continue;
+                } else {
                     break;
+                }
             } else if (wb == 0) {
                 fprintf(stderr, "%s: closing filedescriptor %d with %db pending data\n", __FUNCTION__, fd, conn->outlen);
                 break;
-            } else {
-                conn->outlen -= wb;
             }
+            TAILQ_REMOVE(&conn->output_queue, chunk, next);
+            if (chunk->free)
+                free(chunk->data);
+            free(chunk);
+            chunk = TAILQ_FIRST(&conn->output_queue);
         }
     }
 
@@ -948,30 +978,35 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     iomux_connection_t *tmp;
     TAILQ_FOREACH_SAFE(connection, &iomux->connections_list, next, tmp) {
         int fd = connection->fd;
-        if (connection->cbs.mux_output) {
-            int len = 0;
-            int maxlen = connection->bufsize - connection->outlen;
-            unsigned char data[maxlen];
-            if (maxlen > 0) {
-                len = maxlen;
-                connection->cbs.mux_output(iomux, fd, data, &len,
-                                           connection->cbs.priv);
+        iomux_output_chunk_t *chunk = TAILQ_FIRST(&connection->output_queue);
+        if (chunk) {
+            memcpy(&iomux->events[n], &connection->event, 2 * sizeof(struct kevent));
+            n += 2;
+        } else if (connection->cbs.mux_output) {
+            int len = IOMUX_CONNECTION_BUFSIZE_DEFAULT;
+            unsigned char *data = malloc(len);
+            connection->cbs.mux_output(iomux, fd, data, &len,
+                                       connection->cbs.priv);
 
-                if (!iomux->connections[fd])
-                    continue;
+            if (!iomux->connections[fd]) {
+                free(data);
+                continue;
             }
+
             if (len) {
-                memcpy(connection->outbuf + connection->outlen, data, len);
-                connection->outlen += len;
+                data = realloc(data, len);
+                iomux_output_chunk_t *chunk = calloc(1, sizeof(iomux_output_chunk_t));
+                chunk->data = data;
+                chunk->len = len;
+                chunk->free = 1;
+                TAILQ_INSERT_TAIL(&connection->output_queue, chunk, next);
                 memcpy(&iomux->events[n], connection->event, 2 * sizeof(struct kevent));
                 n += 2;
             } else {
+                free(data);
                 memcpy(&iomux->events[n], &connection->event, sizeof(struct kevent));
                 n++;
             }
-        } else if (connection->outlen) {
-            memcpy(&iomux->events[n], &connection->event, 2 * sizeof(struct kevent));
-            n += 2;
         } else {
             memcpy(&iomux->events[n], &connection->event, sizeof(struct kevent));
             n++;
@@ -1052,24 +1087,30 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     iomux_connection_t *tmp;
     TAILQ_FOREACH_SAFE(connection, &iomux->connections_list, next, tmp) {
         int fd = connection->fd;
-        if (connection->cbs.mux_output) {
-            int len = 0;
-            int maxlen = connection->bufsize - connection->outlen;
-            if (maxlen) {
-                unsigned char data[maxlen];
-                len = maxlen;
-                connection->cbs.mux_output(iomux, fd, data, &len,
-                                           connection->cbs.priv);
+        iomux_output_chunk_t *chunk = TAILQ_FIRST(&connection->output_queue);
 
-                // NOTE: the output callback might have removed the fd from the mux
-                if (!iomux->connections[fd])
-                    continue;
+        if (!chunk && connection->cbs.mux_output) {
+            int len = IOMUX_CONNECTION_BUFSIZE_DEFAULT;
+            unsigned char *data = malloc(len);
+            connection->cbs.mux_output(iomux, fd, data, &len,
+                                       connection->cbs.priv);
 
-                memcpy(connection->outbuf + connection->outlen, data, len);
-                connection->outlen += len;
+            // NOTE: the output callback might have removed the fd from the mux
+            if (!iomux->connections[fd]) {
+                free(data);
+                continue;
+            }
+
+            if (len) {
+                data = realloc(data, len);
+                chunk = calloc(1, sizeof(iomux_output_chunk_t));
+                chunk->free = 1;
+                chunk->data = data;
+                chunk->len = len;
+                TAILQ_INSERT_TAIL(&connection->output_queue, chunk, next);
             }
         }
-        if (connection->outlen) {
+        if (chunk) {
             struct epoll_event event;
             bzero(&event, sizeof(event));
             event.data.fd = fd;
@@ -1166,21 +1207,29 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     iomux_connection_t *tmp;
     TAILQ_FOREACH_SAFE(connection, &iomux->connections_list, next, tmp) {
         int fd = connection->fd;
+        iomux_output_chunk_t *chunk = TAILQ_FIRST(&connection->output_queue);
+
         // always register managed fds for reading (even if
         // no mux_input callbacks is present) to detect EOF.
-        if (connection->cbs.mux_output) {
-            int len = 0;
-            int maxsize = connection->bufsize - connection->outlen;
-            if (maxsize) {
-                unsigned char data[maxsize];
-                len = maxsize;
-                connection->cbs.mux_output(iomux, fd, data, &len,
-                                           connection->cbs.priv);
-                if (!iomux->connections[fd])
-                    continue;
+        if (!chunk && connection->cbs.mux_output) {
+            int len = IOMUX_CONNECTION_BUFSIZE_DEFAULT;
+            unsigned char *data = malloc(len);
+            connection->cbs.mux_output(iomux, fd, data, &len,
+                                       connection->cbs.priv);
 
-                memcpy(connection->outbuf + connection->outlen, data, len);
-                connection->outlen += len;
+            // NOTE: the output callback might have removed the fd from the mux
+            if (!iomux->connections[fd]) {
+                free(data);
+                continue;
+            }
+
+            if (len) {
+                data = realloc(data, len);
+                chunk = calloc(1, sizeof(iomux_output_chunk_t));
+                chunk->free = 1;
+                chunk->data = data;
+                chunk->len = len;
+                TAILQ_INSERT_TAIL(&connection->output_queue, chunk, next);
             }
         }
 
@@ -1188,7 +1237,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         if (fd > maxfd)
             maxfd = fd;
 
-        if (connection->outlen) {
+        if (chunk) {
             // output pending data
             FD_SET(fd, &rout[0]);
             if (fd > maxfd)
