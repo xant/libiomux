@@ -836,6 +836,7 @@ iomux_close(iomux_t *iomux, int fd)
             if (chunk->free)
                 free(chunk->data);
             free(chunk);
+            retries = 0;
             chunk = TAILQ_FIRST(&conn->output_queue);
         }
     }
