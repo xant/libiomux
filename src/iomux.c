@@ -770,8 +770,13 @@ iomux_write(iomux_t *iomux, int fd, unsigned char *buf, int len, int mode)
 
     MUTEX_LOCK(iomux);
 
-    if (!iomux->connections[fd])
+    if (!iomux->connections[fd]) {
+        MUTEX_UNLOCK(iomux);
+        if (chunk->free)
+            free(chunk->data);
+        free(chunk);
         return 0;
+    }
 
     TAILQ_INSERT_TAIL(&iomux->connections[fd]->output_queue, chunk, next);
 
