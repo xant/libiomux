@@ -90,6 +90,8 @@ typedef void (*iomux_eof_callback_t)(iomux_t *iomux, int fd, void *priv);
  */
 typedef void (*iomux_connection_callback_t)(iomux_t *iomux, int fd, void *priv);
 
+typedef void (*iomux_free_data_callback_t)(iomux_t *iomux, int fd, unsigned char *data, int len, void *priv);
+
 /**
  * @struct iomux_callbacks_t
  * @brief iomux callbacks structure
@@ -105,6 +107,8 @@ typedef struct __iomux_callbacks {
     iomux_eof_callback_t mux_eof;
     //! If not NULL and fd is a listening socket, it will be called when a new connection is accepted on fd 
     iomux_connection_callback_t mux_connection;
+    //! If not NULL this callback will be used instead of free() when an output chunk should be released
+    iomux_free_data_callback_t mux_free_data;
     //! A pointer to private data which will be passed to all the callbacks as last argument
     void *priv;
 } iomux_callbacks_t;

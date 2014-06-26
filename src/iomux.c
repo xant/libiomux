@@ -331,8 +331,12 @@ iomux_remove(iomux_t *iomux, int fd)
     iomux_output_chunk_t *chunk = TAILQ_FIRST(&iomux->connections[fd]->output_queue);
     while (chunk) {
         TAILQ_REMOVE(&iomux->connections[fd]->output_queue, chunk, next);
-        if (chunk->free)
-            free(chunk->data);
+        if (chunk->free) {
+            if (iomux->connections[fd]->cbs.mux_free_data)
+                iomux->connections[fd]->cbs.mux_free_data(iomux, fd, chunk->data, chunk->len, iomux->connections[fd]->cbs.priv);
+            else
+                free(chunk->data);
+        }
         free(chunk);
         chunk = TAILQ_FIRST(&iomux->connections[fd]->output_queue);
     }
@@ -638,8 +642,12 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
         outlen -= wb;
         if (!outlen) {
             TAILQ_REMOVE(&iomux->connections[fd]->output_queue, chunk, next); 
-            if (chunk->free)
-                free(chunk->data);
+            if (chunk->free) {
+                if (iomux->connections[fd]->cbs.mux_free_data)
+                    iomux->connections[fd]->cbs.mux_free_data(iomux, fd, chunk->data, chunk->len, iomux->connections[fd]->cbs.priv);
+                else
+                    free(chunk->data);
+            }
             free(chunk);
             chunk = TAILQ_FIRST(&iomux->connections[fd]->output_queue);
         } else {
@@ -772,8 +780,12 @@ iomux_write(iomux_t *iomux, int fd, unsigned char *buf, int len, int mode)
 
     if (!iomux->connections[fd]) {
         MUTEX_UNLOCK(iomux);
-        if (chunk->free)
-            free(chunk->data);
+        if (chunk->free) {
+            if (iomux->connections[fd]->cbs.mux_free_data)
+                iomux->connections[fd]->cbs.mux_free_data(iomux, fd, chunk->data, chunk->len, iomux->connections[fd]->cbs.priv);
+            else
+                free(chunk->data);
+        }
         free(chunk);
         return 0;
     }
@@ -833,8 +845,12 @@ iomux_close(iomux_t *iomux, int fd)
                 break;
             }
             TAILQ_REMOVE(&conn->output_queue, chunk, next);
-            if (chunk->free)
-                free(chunk->data);
+            if (chunk->free) {
+                if (iomux->connections[fd]->cbs.mux_free_data)
+                    iomux->connections[fd]->cbs.mux_free_data(iomux, fd, chunk->data, chunk->len, iomux->connections[fd]->cbs.priv);
+                else
+                    free(chunk->data);
+            }
             free(chunk);
             retries = 0;
             chunk = TAILQ_FIRST(&conn->output_queue);
