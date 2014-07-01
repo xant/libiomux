@@ -831,7 +831,8 @@ iomux_close(iomux_t *iomux, int fd)
     if (fcntl(fd, F_GETFD, 0) != -1 && conn->outlen) { // there is pending data
         int retries = 0;
         iomux_output_chunk_t *chunk = TAILQ_FIRST(&conn->output_queue);
-        while (chunk && retries <= IOMUX_FLUSH_MAXRETRIES) {
+        iomux_output_chunk_t *last_chunk = NULL; // XXX - here to silence the static analyzer
+        while (chunk && chunk != last_chunk && retries <= IOMUX_FLUSH_MAXRETRIES) {
             int wb = write(fd, chunk->data, chunk->len);
             if (wb == -1) {
                 if (errno == EINTR || errno == EAGAIN) {
@@ -845,6 +846,7 @@ iomux_close(iomux_t *iomux, int fd)
                 break;
             }
             TAILQ_REMOVE(&conn->output_queue, chunk, next);
+            retries = 0;
             if (chunk->free) {
                 if (iomux->connections[fd]->cbs.mux_free_data)
                     iomux->connections[fd]->cbs.mux_free_data(iomux, fd, chunk->data, chunk->len, iomux->connections[fd]->cbs.priv);
@@ -852,7 +854,11 @@ iomux_close(iomux_t *iomux, int fd)
                     free(chunk->data);
             }
             free(chunk);
-            retries = 0;
+            // the static analyzer reports a false positive because not able
+            // to properly understand the TAILQ_REMOVE macro.
+            // The extra check against the last_chunk pointer is here just
+            // to silence that warning
+            last_chunk = chunk;
             chunk = TAILQ_FIRST(&conn->output_queue);
         }
     }
