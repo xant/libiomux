@@ -50,8 +50,8 @@ objects:
 	    elif [ "$$UNAME" = "Linux" ]; then \
 		KERNEL_VERSION=`uname -r | cut -d- -f1`; \
 		MIN_VERSION=2.6.27; \
-		SMALLER_VERSION=`echo "$$KERNEL_VERSION\n$$MIN_VERSION" | sort -V | head -1`; \
-		if [ "$$SMALLER_VERSION" = "$$MIN_VERSION" ]; then \
+		SMALLER_VERSION=`echo "$$KERNEL_VERSION$$MIN_VERSION" | sort -V | head -1`; \
+		if [ "$$SMALLER_VERSION" != "$$MIN_VERSION" ]; then \
 		    PLATFORM_CFLAGS="-DHAVE_EPOLL"; \
 		fi; \
 	    fi; \
