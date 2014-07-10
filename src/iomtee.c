@@ -249,7 +249,7 @@ void iomtee_remove_fd(iomtee_t *tee, int fd)
 
 void iomtee_close(iomtee_t *tee)
 {
-    __sync_add_and_fetch(&tee->leave, 1);
+    (void)__sync_add_and_fetch(&tee->leave, 1);
     pthread_join(tee->th, NULL);
     close(tee->pipe[0]);
     close(tee->pipe[1]);
