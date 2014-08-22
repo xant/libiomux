@@ -1210,9 +1210,17 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             iomux_close(iomux, iomux->events[i].data.fd);
             continue;
         } else if ((iomux->events[i].events & EPOLLERR)) {
-            if (errno != EINPROGRESS) {
-                fprintf (stderr, "epoll error on fd %d: %s\n",
-                        iomux->events[i].data.fd, strerror(errno));
+            int error = 0;
+            socklen_t errlen = sizeof(error);
+            if (getsockopt(iomux->events[i].data.fd, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen) == 0)
+            {
+                if (error != EINPROGRESS) {
+                    fprintf (stderr, "epoll error on fd %d: %s\n",
+                            iomux->events[i].data.fd, strerror(error));
+                    iomux_close(iomux, iomux->events[i].data.fd);
+                }
+            } else {
+                fprintf (stderr, "unkown epoll error on fd %d\n", iomux->events[i].data.fd);
                 iomux_close(iomux, iomux->events[i].data.fd);
             }
             continue;
