@@ -18,6 +18,7 @@ struct __bh_s {
     TAILQ_HEAD(, __binomial_tree_node_s) trees;
     binomial_tree_node_t *head;
     int count;
+    bh_free_value_callback_t free_value_cb;
 };
 
 #define UPDATE_HEAD(__bh) { \
@@ -112,7 +113,7 @@ binomial_tree_node_increase_key(binomial_tree_node_t *node, int incr)
 }
 
 static void
-binomial_tree_node_destroy(binomial_tree_node_t *node)
+binomial_tree_node_destroy(binomial_tree_node_t *node, bh_free_value_callback_t free_value_cb)
 {
     int i;
     binomial_tree_node_t *new_parent = NULL;
@@ -165,29 +166,35 @@ binomial_tree_node_destroy(binomial_tree_node_t *node)
     }
 
     node->bh->count--;
+
+    if (free_value_cb)
+        free_value_cb(node->value);
+
     if (node->children)
         free(node->children);
+
     free(node);
 }
 
 bh_t *
-bh_create()
+bh_create(bh_free_value_callback_t free_value_cb)
 {
     bh_t *bh = calloc(1, sizeof(bh_t));
+    bh->free_value_cb = free_value_cb;
     TAILQ_INIT(&bh->trees);
     return bh;
+}
+
+static int
+binomial_tree_clear_cb(bh_t *bh, uint64_t key, void *value, size_t vlen, void *priv)
+{
+    return -1;
 }
 
 void
 bh_destroy(bh_t *bh)
 {
-    binomial_tree_node_t *node;
-
-    while ((node = TAILQ_FIRST(&bh->trees))) {
-        TAILQ_REMOVE(&bh->trees, node, next);
-        binomial_tree_node_destroy(node);
-    }
-
+    bh_foreach(bh, binomial_tree_clear_cb, NULL);
     free(bh);
 }
 
@@ -340,7 +347,7 @@ bh_delete(bh_t *bh, uint64_t key, void **value, size_t *vlen)
             *value = to_delete->value;
         if (vlen)
             *vlen = to_delete->vlen;
-        binomial_tree_node_destroy(to_delete);
+        binomial_tree_node_destroy(to_delete, value ? NULL : bh->free_value_cb);
         if (to_delete == bh->head)
             UPDATE_HEAD(bh);
         return 0;
@@ -397,7 +404,7 @@ bh_delete_minimum(bh_t *bh, void **value, size_t *vlen)
     if (vlen)
         *vlen = minitem->vlen;
 
-    binomial_tree_node_destroy(minitem);
+    binomial_tree_node_destroy(minitem, value ? NULL : bh->free_value_cb);
 
     if (bh->head == minitem)
         UPDATE_HEAD(bh);
@@ -419,7 +426,7 @@ bh_delete_maximum(bh_t *bh, void **value, size_t *vlen)
     if (vlen)
         *vlen = maxitem->vlen;
 
-    binomial_tree_node_destroy(maxitem);
+    binomial_tree_node_destroy(maxitem, value ? NULL : bh->free_value_cb);
 
     if (bh->head == maxitem)
         UPDATE_HEAD(bh);
@@ -438,7 +445,7 @@ bh_count(bh_t *bh)
 bh_t *bh_merge(bh_t *bh1, bh_t *bh2)
 {
 
-    bh_t *merged_heap = bh_create();
+    bh_t *merged_heap = bh_create(bh1->free_value_cb);
 
     binomial_tree_node_t *node1 = TAILQ_FIRST(&bh1->trees);
     if (node1)
@@ -628,42 +635,55 @@ bh_decrease_minimum(bh_t *bh, int decr)
     binomial_tree_node_increase_key(minitem, -decr);
 }
 
-
 static int
-binomial_tree_walk(bh_t *bh, binomial_tree_node_t *root, bh_iterator_callback cb, void *priv)
+binomial_tree_walk(binomial_tree_node_t *node, bh_iterator_callback cb, void *priv)
 {
-    int i;
-    int rc = cb(bh, root->key, root->value, root->vlen, priv);
+    int proceed = 0;
+    int remove = 0;
+    int rc = cb(node->bh, node->key, node->value, node->vlen, priv);
     switch(rc) {
-        case 0:
+        case -2:
+            proceed = 0;
+            remove = 1;
+            break;
         case -1:
-            binomial_tree_node_destroy(root);
-            if (root == bh->head)
-                UPDATE_HEAD(bh);
-            return rc;
+            proceed = 1;
+            remove = 1;
+            break;
+        case 0:
+            proceed = 0;
+            remove = 0;
+            break;
+        case 1:
+            proceed = 1;
+            remove = 0;
+            break;
         default:
+            // TODO - Warning messages? (the callback returned an invalid return code)
             break;
     }
-    for (i = 0; rc != 0 && i < root->num_children; i++) {
-        rc  = binomial_tree_walk(bh, root->children[i], cb, priv);
-        switch(rc) {
-            case -1:
-                i--;
-                rc = 1;
-                break;
-            default:
+    if (proceed) {
+        int i;
+        for (i = 0; i < node->num_children; i ++) {
+            binomial_tree_node_t *child = node->children[i];
+            proceed = binomial_tree_walk(child, cb, priv); 
+            if (!proceed)
                 break;
         }
     }
-    return rc;
+    if (remove) {
+        binomial_tree_node_destroy(node, node->bh->free_value_cb);
+    }
+    return proceed;
 }
 
 void
 bh_foreach(bh_t *bh, bh_iterator_callback cb, void *priv)
 {
     binomial_tree_node_t *curtree = NULL;
-    TAILQ_FOREACH(curtree, &bh->trees, next) {
-        if (binomial_tree_walk(bh, curtree, cb, priv) == 0)
+    binomial_tree_node_t *tmp;
+    TAILQ_FOREACH_SAFE(curtree, &bh->trees, next, tmp) {
+        if (binomial_tree_walk(curtree, cb, priv) == 0)
             break;
     }
 }

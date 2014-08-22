@@ -144,6 +144,15 @@ static void set_error(iomux_t *iomux, char *fmt, ...) {
 
 static void iomux_handle_timeout(iomux_t *iomux, void *priv);
 
+static void
+iomux_timeout_destroy(iomux_timeout_t *timeout)
+{
+    if (timeout->free_ctx_cb)
+        timeout->free_ctx_cb(timeout->priv);
+    free(timeout);
+    
+}
+
 iomux_t *
 iomux_create(int bufsize, int threadsafe)
 {
@@ -186,7 +195,7 @@ iomux_create(int bufsize, int threadsafe)
     iomux->connections = calloc(1, sizeof(iomux_connection_t *) * iomux->maxconnections);
     TAILQ_INIT(&iomux->connections_list);
 
-    iomux->timeouts = bh_create();
+    iomux->timeouts = bh_create((bh_free_value_callback_t)iomux_timeout_destroy);
 
     if (threadsafe) {
         iomux->lock = malloc(sizeof(pthread_mutex_t));
@@ -741,9 +750,7 @@ iomux_run_timeouts(iomux_t *iomux)
         // run expired timeouts
         MUTEX_UNLOCK(iomux);
         timeout->cb(iomux, timeout->priv);
-        if (timeout->free_ctx_cb)
-            timeout->free_ctx_cb(timeout->priv);
-        free(timeout);
+        iomux_timeout_destroy(timeout);
         MUTEX_LOCK(iomux);
     }
 
@@ -944,22 +951,14 @@ void
 iomux_clear(iomux_t *iomux)
 {
     int fd;
-    iomux_timeout_t *timeout = NULL;
-
     MUTEX_LOCK(iomux);
+
     for (fd = iomux->maxfd; fd >= iomux->minfd; fd--) {
         if (iomux->connections[fd]) {
             iomux_close(iomux, fd);
         }
     }
 
-    void *timeout_ptr = NULL;
-    while (bh_delete_minimum(iomux->timeouts, &timeout_ptr, NULL) == 0) {
-        timeout = (iomux_timeout_t *)timeout_ptr;
-        if (timeout->free_ctx_cb)
-            timeout->free_ctx_cb(timeout->priv);
-        free(timeout);
-    }
     MUTEX_UNLOCK(iomux);
 }
 

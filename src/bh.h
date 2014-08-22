@@ -14,11 +14,16 @@
  */
 typedef struct __bh_s bh_t;
 
+typedef void (*bh_free_value_callback_t)(void *value);
+
 /**
  * @brief Create a new binomial heap
+ * @param free_value_cb If not null this callback will be used to release
+ *                      the value stored in a specific node if the heap is being
+ *                      cleared/destroyed while there are still nodes in it
  * @return               A valid and initialized binomial heap (empty)
  */
-bh_t *bh_create();
+bh_t *bh_create(bh_free_value_callback_t free_value_cb);
 
 /**
  * @brief Release all the resources used by a binomial heap
