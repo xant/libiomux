@@ -318,7 +318,7 @@ main(int argc, char **argv)
 
     int cnt = 0;
     ut_testing("iomux_schedule()");
-    uint64_t timerid = iomux_schedule(mux, &tv, test_timeout_nofd, &cnt);
+    uint64_t timerid = iomux_schedule(mux, &tv, test_timeout_nofd, &cnt, NULL);
     if (timerid > 0)
         ut_success();
     else
@@ -328,7 +328,7 @@ main(int argc, char **argv)
     ut_validate_int(iomux_unschedule(mux, timerid), 1);
 
     ut_testing("timer runs");
-    timerid = iomux_schedule(mux, &tv, test_timeout_nofd, &cnt);
+    timerid = iomux_schedule(mux, &tv, test_timeout_nofd, &cnt, NULL);
     iomux_loop(mux, NULL);
     ut_validate_int(cnt, 1);
 

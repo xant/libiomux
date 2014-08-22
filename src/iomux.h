@@ -149,6 +149,8 @@ iomux_timeout_id_t iomux_set_timeout(iomux_t *iomux,
                                      int fd,
                                      struct timeval *timeout);
 
+typedef void (*iomux_timeout_free_context_cb)(void *priv);
+
 /**
  * @brief Register timed callback.
  * @param iomux The iomux handle
@@ -160,7 +162,8 @@ iomux_timeout_id_t iomux_set_timeout(iomux_t *iomux,
 iomux_timeout_id_t iomux_schedule(iomux_t *iomux,
                                   struct timeval *timeout,
                                   iomux_cb_t cb,
-                                  void *priv);
+                                  void *priv,
+                                  iomux_timeout_free_context_cb free_ctx_cb);
 
 /**
  * @brief Reset the schedule time on a timed callback.
@@ -177,7 +180,8 @@ iomux_timeout_id_t iomux_reschedule(iomux_t *iomux,
                                     iomux_timeout_id_t id,
                                     struct timeval *timeout,
                                     iomux_cb_t cb,
-                                    void *priv);
+                                    void *priv,
+                                    iomux_timeout_free_context_cb free_ctx_cb);
 
 /**
  * @brief Unregister a specific timeout callback.
@@ -185,7 +189,8 @@ iomux_timeout_id_t iomux_reschedule(iomux_t *iomux,
  * @param id The timeout id
  * @returns TRUE on success; FALSE otherwise.
  */
-int  iomux_unschedule(iomux_t *iomux, iomux_timeout_id_t id);
+int  iomux_unschedule(iomux_t *iomux,
+                      iomux_timeout_id_t id);
 
 /**
  * @brief Unregister all timers for a given callback.

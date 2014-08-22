@@ -91,6 +91,7 @@ typedef struct __iomux_timeout {
     struct timeval expire_time;
     void (*cb)(iomux_t *iomux, void *priv);
     void *priv;
+    iomux_timeout_free_context_cb free_ctx_cb;
 } iomux_timeout_t;
 
 //! \brief IOMUX base structure
@@ -360,7 +361,11 @@ iomux_remove(iomux_t *iomux, int fd)
 }
 
 iomux_timeout_id_t
-iomux_schedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
+iomux_schedule(iomux_t *iomux,
+               struct timeval *tv,
+               iomux_cb_t cb,
+               void *priv,
+               iomux_timeout_free_context_cb free_ctx_cb)
 {
     iomux_timeout_t *timeout;
 
@@ -378,6 +383,8 @@ iomux_schedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
     timeradd(&now, tv, &timeout->expire_time);
     timeout->cb = cb;
     timeout->priv = priv;
+    timeout->free_ctx_cb = free_ctx_cb;
+
     uint64_t expire =  (timeout->expire_time.tv_sec * 1000) + (timeout->expire_time.tv_usec/1000);
     timeout->id = (expire << 8) | (++iomux->last_timeout_id % 256);
 
@@ -388,10 +395,15 @@ iomux_schedule(iomux_t *iomux, struct timeval *tv, iomux_cb_t cb, void *priv)
 }
 
 iomux_timeout_id_t
-iomux_reschedule(iomux_t *iomux, iomux_timeout_id_t id, struct timeval *tv, iomux_cb_t cb, void *priv)
+iomux_reschedule(iomux_t *iomux,
+                 iomux_timeout_id_t id,
+                 struct timeval *tv,
+                 iomux_cb_t cb,
+                 void *priv,
+                 iomux_timeout_free_context_cb free_ctx_cb)
 {
     iomux_unschedule(iomux, id);
-    return iomux_schedule(iomux, tv, cb, priv);
+    return iomux_schedule(iomux, tv, cb, priv, free_ctx_cb);
 }
 
 typedef struct {
@@ -477,7 +489,7 @@ iomux_set_timeout(iomux_t *iomux, int fd, struct timeval *tv)
     }
 
     MUTEX_UNLOCK(iomux);
-    return iomux_reschedule(iomux, iomux->connections[fd]->timeout_id, tv, iomux_handle_timeout, (void *)(long int)fd);
+    return iomux_reschedule(iomux, iomux->connections[fd]->timeout_id, tv, iomux_handle_timeout, (void *)(long int)fd, NULL);
 }
 
 int
@@ -729,8 +741,10 @@ iomux_run_timeouts(iomux_t *iomux)
         // run expired timeouts
         MUTEX_UNLOCK(iomux);
         timeout->cb(iomux, timeout->priv);
-        MUTEX_LOCK(iomux);
+        if (timeout->free_ctx_cb)
+            timeout->free_ctx_cb(timeout->priv);
         free(timeout);
+        MUTEX_LOCK(iomux);
     }
 
     MUTEX_UNLOCK(iomux);
@@ -942,6 +956,8 @@ iomux_clear(iomux_t *iomux)
     void *timeout_ptr = NULL;
     while (bh_delete_minimum(iomux->timeouts, &timeout_ptr, NULL) == 0) {
         timeout = (iomux_timeout_t *)timeout_ptr;
+        if (timeout->free_ctx_cb)
+            timeout->free_ctx_cb(timeout->priv);
         free(timeout);
     }
     MUTEX_UNLOCK(iomux);
