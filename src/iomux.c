@@ -748,10 +748,8 @@ iomux_run_timeouts(iomux_t *iomux)
             break;
         }
         // run expired timeouts
-        MUTEX_UNLOCK(iomux);
         timeout->cb(iomux, timeout->priv);
         iomux_timeout_destroy(timeout);
-        MUTEX_LOCK(iomux);
     }
 
     MUTEX_UNLOCK(iomux);
