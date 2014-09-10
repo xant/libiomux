@@ -395,7 +395,7 @@ iomux_schedule(iomux_t *iomux,
     timeout->free_ctx_cb = free_ctx_cb;
 
     uint64_t expire =  (timeout->expire_time.tv_sec * 1000) + (timeout->expire_time.tv_usec/1000);
-    timeout->id = (expire << 8) | (++iomux->last_timeout_id % 256);
+    timeout->id = (uint64_t)((expire << 8) | (uint8_t)(++iomux->last_timeout_id % 256));
 
     // keep the list sorted in ascending order
     bh_insert(iomux->timeouts, timeout->id, timeout, sizeof(iomux_timeout_t));
@@ -1196,13 +1196,14 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         }
     }
 
+    int num_fds = iomux->numfds;
+
     MUTEX_UNLOCK(iomux);
 
     // shrink the timeout if we have timers expiring earlier
     struct timeval *tv = iomux_adjust_timeout(iomux, tv_default);
     int epoll_waiting_time = tv ? ((tv->tv_sec * 1000) + (tv->tv_usec / 1000)) : -1;
 
-    int num_fds = iomux->maxfd - iomux->minfd + 1;
     int n = 0;
     if (num_fds > 0) {
         n = epoll_wait(iomux->efd, iomux->events, num_fds, epoll_waiting_time);
