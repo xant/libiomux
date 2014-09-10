@@ -1196,7 +1196,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
         }
     }
 
-    int num_fds = iomux->numfds;
+    int num_fds = iomux->num_fds;
 
     MUTEX_UNLOCK(iomux);
 
