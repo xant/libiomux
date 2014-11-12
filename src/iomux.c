@@ -734,6 +734,13 @@ iomux_run_timeouts(iomux_t *iomux)
 
     MUTEX_LOCK(iomux);
 
+    if (!bh_count(iomux->timeouts)) {
+        // there are no timeouts scheduled,
+        // return early
+        MUTEX_UNLOCK(iomux);
+        return;
+    }
+
     struct timeval now;
     gettimeofday(&now, NULL);
 
