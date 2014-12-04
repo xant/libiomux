@@ -77,7 +77,7 @@ typedef struct __iomux_connection_s {
     int eof;
     int inlen;
     int outlen;
-    iomux_timeout_id_t timeout_id;
+    struct timeval expire_time;
     TAILQ_ENTRY(__iomux_connection_s) next;
 #if defined(HAVE_KQUEUE)
     int16_t kfilters[2];
@@ -141,8 +141,6 @@ static void set_error(iomux_t *iomux, char *fmt, ...) {
 
 
 #define IOMUX_FLUSH_MAXRETRIES 5    //!< Maximum number of iterations for flushing the output buffer
-
-static void iomux_handle_timeout(iomux_t *iomux, void *priv);
 
 static void
 iomux_timeout_destroy(iomux_timeout_t *timeout)
@@ -317,7 +315,6 @@ iomux_remove(iomux_t *iomux, int fd)
         MUTEX_UNLOCK(iomux);
         return 0;
     }
-    iomux_unschedule(iomux, iomux->connections[fd]->timeout_id);
 
 #if defined(HAVE_EPOLL)
     struct epoll_event event;
@@ -469,6 +466,7 @@ iomux_unschedule(iomux_t *iomux, iomux_timeout_id_t id)
     return 1;
 }
 
+/*
 static void
 iomux_handle_timeout(iomux_t *iomux, void *priv)
 {
@@ -481,24 +479,25 @@ iomux_handle_timeout(iomux_t *iomux, void *priv)
         }
     }
 }
+*/
 
-iomux_timeout_id_t
+void
 iomux_set_timeout(iomux_t *iomux, int fd, struct timeval *tv)
 {
     MUTEX_LOCK(iomux);
     if (!iomux->connections[fd]) {
         MUTEX_UNLOCK(iomux);
-        return 0;
+        return;
     }
 
-    if (!tv) {
-        (void) iomux_unschedule(iomux, iomux->connections[fd]->timeout_id);
-        MUTEX_UNLOCK(iomux);
-        return 0;
+    if (tv) {
+        struct timeval now;
+        gettimeofday(&now, NULL);
+        timeradd(&now, tv, &iomux->connections[fd]->expire_time);
+    } else {
+        memset(&iomux->connections[fd]->expire_time, 0, sizeof(iomux->connections[fd]->expire_time));
     }
-
     MUTEX_UNLOCK(iomux);
-    return iomux_reschedule(iomux, iomux->connections[fd]->timeout_id, tv, iomux_handle_timeout, (void *)(long int)fd, NULL);
 }
 
 int
@@ -647,7 +646,7 @@ iomux_write_fd(iomux_t *iomux, int fd, void *priv)
         return;
     }
 
-    char *outbuf = chunk->data + chunk->offset;
+    char *outbuf = (char *)chunk->data + chunk->offset;
     int outlen = chunk->len - chunk->offset;
 
     MUTEX_UNLOCK(iomux);
@@ -1017,15 +1016,37 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 {
     int i;
     struct timespec ts;
+    struct timeval expire_min = { 0, 0 };
+    struct timeval now;
 
     MUTEX_LOCK(iomux);
 
+    gettimeofday(&now, NULL);
     int n = 0;
     iomux_connection_t *connection = NULL;
     iomux_connection_t *tmp;
     TAILQ_FOREACH_SAFE(connection, &iomux->connections_list, next, tmp) {
         int fd = connection->fd;
         int len = connection->inlen;
+        if (connection->expire_time.tv_sec) {
+            if (timercmp(&now, &connection->expire_time, <)) {
+                memset(&connection->expire_time, 0, sizeof(connection->expire_time));
+                if (connection->cbs.mux_timeout) {
+                    connection->cbs.mux_timeout(iomux, fd, connection->cbs.priv);
+                    // a timeout routine can remove an fd from the mux, so we need to check for its existance again
+                    if (!iomux->connections[fd])
+                        continue;
+                }
+            } else {
+                struct timeval expire_time;
+                timersub(&connection->expire_time, &now, &expire_time);
+                if (!expire_min.tv_sec || timercmp(&expire_min,  &expire_time, >))
+                    memcpy(&expire_min, &expire_time, sizeof(struct timeval));
+
+                if (!tv_default || (tv_default != &expire_min && timercmp(tv_default, &expire_min, >)))
+                    tv_default = &expire_min;
+            }
+        }
         if (len && connection->cbs.mux_input) {
             int mb = connection->cbs.mux_input(iomux, fd, connection->inbuf, len, connection->cbs.priv);
             if (iomux->connections[fd] == connection && iomux->connections[fd]->inlen == connection->inlen)
@@ -1143,13 +1164,39 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 {
     int fd;
 
+    struct timeval expire_min = { 0, 0 };
+    struct timeval now;
+
     MUTEX_LOCK(iomux);
 
+    gettimeofday(&now, NULL);
+ 
     iomux_connection_t *connection = NULL;
     iomux_connection_t *tmp;
     TAILQ_FOREACH_SAFE(connection, &iomux->connections_list, next, tmp) {
         int fd = connection->fd;
         int len = connection->inlen;
+
+        if (connection->expire_time.tv_sec) {
+            if (timercmp(&now, &connection->expire_time, <)) {
+                memset(&connection->expire_time, 0, sizeof(connection->expire_time));
+                if (connection->cbs.mux_timeout) {
+                    connection->cbs.mux_timeout(iomux, fd, connection->cbs.priv);
+                    // a timeout routine can remove an fd from the mux, so we need to check for its existance again
+                    if (!iomux->connections[fd])
+                        continue;
+                }
+            } else {
+                struct timeval expire_time;
+                timersub(&connection->expire_time, &now, &expire_time);
+                if (!expire_min.tv_sec || timercmp(&expire_min,  &expire_time, >))
+                    memcpy(&expire_min, &expire_time, sizeof(struct timeval));
+
+                if (!tv_default || (tv_default != &expire_min && timercmp(tv_default, &expire_min, >)))
+                    tv_default = &expire_min;
+            }
+        }
+ 
         if (len && connection->cbs.mux_input) {
             int mb = connection->cbs.mux_input(iomux, fd, connection->inbuf, len, connection->cbs.priv);
             if (iomux->connections[fd] == connection && iomux->connections[fd]->inlen == connection->inlen)
@@ -1289,13 +1336,39 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     memset(&rin, 0, sizeof(rin));
     memset(&rout, 0, sizeof(rout));
 
+    struct timeval expire_min = { 0, 0 };
+    struct timeval now;
+
     MUTEX_LOCK(iomux);
 
+    gettimeofday(&now, NULL);
+ 
     iomux_connection_t *connection = NULL;
     iomux_connection_t *tmp;
     TAILQ_FOREACH_SAFE(connection, &iomux->connections_list, next, tmp) {
         int fd = connection->fd;
         int len = connection->inlen;
+
+        if (connection->expire_time.tv_sec) {
+            if (timercmp(&now, &connection->expire_time, <)) {
+                memset(&connection->expire_time, 0, sizeof(connection->expire_time));
+                if (connection->cbs.mux_timeout) {
+                    connection->cbs.mux_timeout(iomux, fd, connection->cbs.priv);
+                    // a timeout routine can remove an fd from the mux, so we need to check for its existance again
+                    if (!iomux->connections[fd])
+                        continue;
+                }
+            } else {
+                struct timeval expire_time;
+                timersub(&connection->expire_time, &now, &expire_time);
+                if (!expire_min.tv_sec || timercmp(&expire_min,  &expire_time, >))
+                    memcpy(&expire_min, &expire_time, sizeof(struct timeval));
+
+                if (!tv_default || (tv_default != &expire_min && timercmp(tv_default, &expire_min, >)))
+                    tv_default = &expire_min;
+            }
+        }
+ 
         if (len && connection->cbs.mux_input) {
             int mb = connection->cbs.mux_input(iomux, fd, connection->inbuf, len, connection->cbs.priv);
             if (iomux->connections[fd] == connection && iomux->connections[fd]->inlen == connection->inlen)

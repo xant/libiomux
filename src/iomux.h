@@ -140,12 +140,11 @@ int iomux_remove(iomux_t *iomux, int fd);
  * @brief Register a timeout on a connection.
  * @param iomux The iomux handle
  * @param fd The fd the timer relates to
- * @param timeout The timeout or NULL
- * @returns The timeout id  on success; 0 otherwise.
+ * @param timeout The timeout (relative) or NULL
  * @note If timeout is NULL the timeout is disabled.
  * @note Needs to be reset after a timeout has fired.
  */
-iomux_timeout_id_t iomux_set_timeout(iomux_t *iomux,
+void iomux_set_timeout(iomux_t *iomux,
                                      int fd,
                                      struct timeval *timeout);
 

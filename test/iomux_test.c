@@ -203,11 +203,7 @@ int test_input(iomux_t *mux, int fd, unsigned char *data, int len, void *priv)
         ut_failure("len %d should %d", len, strlen(TEST_STRING));
     } else {
         ut_validate_buffer(data, len, TEST_STRING, len);
-        ut_testing("iomux_set_timeout(mux, server=%d, tv={ 0, 5000 })", server);
-        if (iomux_set_timeout(mux, server, &tv) > 0)
-            ut_success();
-        else
-            ut_failure("iomux_set_timeout() didn't return a valid timeout id");
+        iomux_set_timeout(mux, server, &tv); // if this works the event loop will stop
     }
     return len;
 }
