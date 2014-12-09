@@ -709,7 +709,9 @@ iomux_adjust_timeout(iomux_t *iomux, struct timeval *tv_default)
     struct timeval wait_time = { 0, 0 };
     struct timeval now;
     gettimeofday(&now, NULL);
-    timersub(&timeout->expire_time, &now, &wait_time);
+    if (timercmp(&timeout->expire_time, &now, >))
+        timersub(&timeout->expire_time, &now, &wait_time);
+
     if (tv_default && timeout) {
         if (timercmp(&wait_time, tv_default, >))
             memcpy(&tv, tv_default, sizeof(struct timeval));
