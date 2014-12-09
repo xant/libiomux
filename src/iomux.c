@@ -1274,7 +1274,7 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
     int i;
     for (i = 0; i < n; i++) {
-        if ((iomux->events[i].events & EPOLLHUP))
+        if ((iomux->events[i].events & EPOLLHUP || iomux->events[i].events & EPOLLRDHUP))
         {
             iomux_close(iomux, iomux->events[i].data.fd);
             continue;
@@ -1283,11 +1283,12 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
             socklen_t errlen = sizeof(error);
             if (getsockopt(iomux->events[i].data.fd, SOL_SOCKET, SO_ERROR, (void *)&error, &errlen) == 0)
             {
-                if (error != EINPROGRESS) {
-                    fprintf (stderr, "epoll error on fd %d: %s\n",
-                            iomux->events[i].data.fd, strerror(error));
-                    iomux_close(iomux, iomux->events[i].data.fd);
-                }
+                if (error == EINPROGRESS) // this is not an error
+                    continue;
+
+                fprintf (stderr, "epoll error on fd %d: %s\n",
+                        iomux->events[i].data.fd, strerror(error));
+                iomux_close(iomux, iomux->events[i].data.fd);
             } else {
                 fprintf (stderr, "unkown epoll error on fd %d\n", iomux->events[i].data.fd);
                 iomux_close(iomux, iomux->events[i].data.fd);
