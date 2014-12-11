@@ -156,6 +156,14 @@ typedef void (*iomux_timeout_free_context_cb)(void *priv);
  * @param timeout The timeout to schedule
  * @param cb The callback to call when the timeout expires
  * @param priv A private context which will be passed to the callback
+ * @param free_ctx_cb An optional callback which, if provided,  will be
+ *                    called when the timeout is being destroyed.\n
+ *                    This can be useful to catch timeouts which are
+ *                    eventually removed before being fired.
+ * @note The free_ctx_cb, if provided, will be called also in the case
+ *       the timeout is correctly fired. The caller should wait until
+ *       the free_ctx_cb is called before releasing the resources eventually
+ *       referenced by the priv pointer.
  * @returns The timeout id  on success; 0 otherwise.
  */
 iomux_timeout_id_t iomux_schedule(iomux_t *iomux,
@@ -171,6 +179,14 @@ iomux_timeout_id_t iomux_schedule(iomux_t *iomux,
  * @param timeout The new timeout
  * @param cb The callback handle
  * @param priv A private context which will be passed to the callback
+ * @param free_ctx_cb An optional callback which, if provided,  will be
+ *                    called when the timeout is being destroyed.\n
+ *                    This can be useful to catch timeouts which are
+ *                    eventually removed before being fired.
+ * @note The free_ctx_cb, if provided, will be called also in the case
+ *       the timeout is correctly fired. The caller should wait until
+ *       the free_ctx_cb is called before releasing the resources eventually
+ *       referenced by the priv pointer.
  * @returns the timeout id  on success; 0 otherwise.
  *
  * @note If the timed callback is not found it is added.
@@ -277,7 +293,7 @@ void iomux_run(iomux_t *iomux, struct timeval *timeout);
  * @brief Write to an fd handled by the iomux
  * @param iomux A valid iomux handler
  * @param fd The fd we want to write to
- * @param buf The buffer to write
+ * @param data The data to write
  * @param len The length of the buffer
  * @param mode the iomux_output_mode which determines if the data has to be copied,
  *             freed or ignored (in which case the caller needs to take care of releasing the underlying memory)
