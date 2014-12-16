@@ -90,6 +90,14 @@ typedef void (*iomux_eof_callback_t)(iomux_t *iomux, int fd, void *priv);
  */
 typedef void (*iomux_connection_callback_t)(iomux_t *iomux, int fd, void *priv);
 
+/*
+ * @brief Callback called when an output chunk can be safely relised (because flushed)
+ * @param iomux The iomux handle
+ * @param fd The fd the timer relates to
+ * @param data The output chunk which can now be released
+ * @param len The size of the chunk
+ * @param priv the private pointer registered with the callbacks
+ */
 typedef void (*iomux_free_data_callback_t)(iomux_t *iomux, int fd, unsigned char *data, int len, void *priv);
 
 /**
@@ -296,12 +304,25 @@ void iomux_run(iomux_t *iomux, struct timeval *timeout);
  * @param data The data to write
  * @param len The length of the buffer
  * @param mode the iomux_output_mode which determines if the data has to be copied,
- *             freed or ignored (in which case the caller needs to take care of releasing the underlying memory)
+ *             freed or ignored (in which case the caller needs to take care of releasing
+ *             the underlying memory)
  * @returns The number of written bytes
  */
 int iomux_write(iomux_t *iomux, int fd, unsigned char *data, int len, iomux_output_mode_t mode);
 
+/**
+ * @brief Set/Override the output callback for a managed filedescriptor
+ * @param iomux A valid iomux handler
+ * @param fd The fd we want to write to
+ * @param cb The new output callback to register on the managed fd
+ */
 int iomux_set_output_callback(iomux_t *iomux, int fd, iomux_output_callback_t cb);
+
+/**
+ * @brief Remove any configured output callback for a managed filedescriptor
+ * @param iomux A valid iomux handler
+ * @param fd The fd we want to write to
+ */
 int iomux_unset_output_callback(iomux_t *iomux, int fd);
 
 /**
