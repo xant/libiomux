@@ -1114,8 +1114,9 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     }
 
 
-    if ((!tv_default && (expire_min.tv_sec || expire_min.tv_usec)) ||
-            (tv_default != &expire_min && timercmp(tv_default, &expire_min, >)))
+    if (!tv_default ||
+         ((expire_min.tv_sec || expire_min.tv_usec) &&
+          tv_default != &expire_min && timercmp(tv_default, &expire_min, >)))
     {
         tv_default = &expire_min;
     }
@@ -1228,8 +1229,9 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
     MUTEX_UNLOCK(iomux);
 
-    if ((!tv_default && (expire_min.tv_sec || expire_min.tv_usec)) ||
-            (tv_default != &expire_min && timercmp(tv_default, &expire_min, >)))
+    if (!tv_default ||
+         ((expire_min.tv_sec || expire_min.tv_usec) &&
+          tv_default != &expire_min && timercmp(tv_default, &expire_min, >)))
     {
         tv_default = &expire_min;
     }
@@ -1352,8 +1354,9 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
     }
 
-    if ((!tv_default && (expire_min.tv_sec || expire_min.tv_usec)) ||
-            (tv_default != &expire_min && timercmp(tv_default, &expire_min, >)))
+    if (!tv_default ||
+         ((expire_min.tv_sec || expire_min.tv_usec) &&
+          tv_default != &expire_min && timercmp(tv_default, &expire_min, >)))
     {
         tv_default = &expire_min;
     }
