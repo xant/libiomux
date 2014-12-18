@@ -1013,13 +1013,10 @@ iomux_unset_output_callback(iomux_t *iomux, int fd)
 }
 
 static inline int
-iomux_poll_connection(iomux_t *iomux, iomux_connection_t *connection, struct timeval *expire_min)
+iomux_poll_connection(iomux_t *iomux, iomux_connection_t *connection, struct timeval *expire_min, struct timeval *now)
 {
-    struct timeval now;
     int fd = connection->fd;
     int len = connection->inlen;
-
-    gettimeofday(&now, NULL);
 
     if (len && connection->cbs.mux_input) {
         int mb = connection->cbs.mux_input(iomux, fd, connection->inbuf, len, connection->cbs.priv);
@@ -1033,8 +1030,9 @@ iomux_poll_connection(iomux_t *iomux, iomux_connection_t *connection, struct tim
             }
         }
     }
+
     if (connection->expire_time.tv_sec) {
-        if (timercmp(&now, &connection->expire_time, <)) {
+        if (timercmp(now, &connection->expire_time, <)) {
             memset(&connection->expire_time, 0, sizeof(connection->expire_time));
             if (connection->cbs.mux_timeout) {
                 connection->cbs.mux_timeout(iomux, fd, connection->cbs.priv);
@@ -1044,7 +1042,7 @@ iomux_poll_connection(iomux_t *iomux, iomux_connection_t *connection, struct tim
             }
         } else {
             struct timeval expire_time;
-            timersub(&connection->expire_time, &now, &expire_time);
+            timersub(&connection->expire_time, now, &expire_time);
             if (!expire_min->tv_sec || timercmp(expire_min,  &expire_time, >))
                 memcpy(expire_min, &expire_time, sizeof(struct timeval));
         }
@@ -1090,13 +1088,16 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     struct timespec ts;
     struct timeval expire_min = { 0, 0 };
 
+    struct timeval now;
+    gettimeofday(&now, NULL);
+
     MUTEX_LOCK(iomux);
 
     int n = 0;
     iomux_connection_t *connection = NULL;
     iomux_connection_t *tmp;
     TAILQ_FOREACH_SAFE(connection, &iomux->connections_list, next, tmp) {
-        int prc = iomux_poll_connection(iomux, connection, &expire_min);
+        int prc = iomux_poll_connection(iomux, connection, &expire_min, &now);
 
         switch(prc) {
             case -1:
@@ -1190,17 +1191,17 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     int fd;
 
     struct timeval expire_min = { 0, 0 };
+
     struct timeval now;
+    gettimeofday(&now, NULL);
 
     MUTEX_LOCK(iomux);
 
-    gettimeofday(&now, NULL);
- 
     iomux_connection_t *connection = NULL;
     iomux_connection_t *tmp;
     TAILQ_FOREACH_SAFE(connection, &iomux->connections_list, next, tmp) {
         int fd = connection->fd;
-        int prc = iomux_poll_connection(iomux, connection, &expire_min);
+        int prc = iomux_poll_connection(iomux, connection, &expire_min, &now);
 
         switch(prc) {
             case -1:
@@ -1320,17 +1321,17 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
     memset(&rout, 0, sizeof(rout));
 
     struct timeval expire_min = { 0, 0 };
+
     struct timeval now;
+    gettimeofday(&now, NULL);
 
     MUTEX_LOCK(iomux);
 
-    gettimeofday(&now, NULL);
- 
     iomux_connection_t *connection = NULL;
     iomux_connection_t *tmp;
     TAILQ_FOREACH_SAFE(connection, &iomux->connections_list, next, tmp) {
         int fd = connection->fd;
-        int prc = iomux_poll_connection(iomux, connection, &expire_min);
+        int prc = iomux_poll_connection(iomux, connection, &expire_min, &now);
 
         switch(prc) {
             case -1:
