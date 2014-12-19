@@ -1,91 +1,38 @@
-UNAME := $(shell uname)
+DOCSET_NAME=org.doxygen.Project.docset
+DOCSET_CONTENTS=$(DOCSET_NAME)/Contents
+DOCSET_RESOURCES=$(DOCSET_CONTENTS)/Resources
+DOCSET_DOCUMENTS=$(DOCSET_RESOURCES)/Documents
+DESTDIR=~/Library/Developer/Shared/Documentation/DocSets
+XCODE_INSTALL=$(shell xcode-select -print-path)
 
-LDFLAGS += -L.
+all: docset
 
-ifeq ($(UNAME), Linux)
-LDFLAGS += -pthread
-else
-LDFLAGS +=
-endif
-
-ifeq ($(UNAME), Darwin)
-SHAREDFLAGS = -dynamiclib
-SHAREDEXT = dylib
-else
-SHAREDFLAGS = -shared
-SHAREDEXT = so
-endif
-
-ifeq ("$(LIBDIR)", "")
-LIBDIR=/usr/local/lib
-endif
-
-ifeq ("$(INCDIR)", "")
-INCDIR=/usr/local/include
-endif
-
-
-#CC = gcc
-SOURCES = $(wildcard src/*.c)
-
-TESTS = $(patsubst %.c, %, $(wildcard test/*.c))
-TEST_EXEC_ORDER =  iomux_test
-
-all: objects static shared
-
-.PHONY: static
-static: objects
-	ar -r libiomux.a src/*.o
-
-shared: objects
-	$(CC) $(LDFLAGS) $(SHAREDFLAGS) src/*.o -o libiomux.$(SHAREDEXT)
-
-.PHONY: objects
-objects: CFLAGS += -fPIC -Isrc -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -g -O3
-objects: 
-	@if [ "X$$USE_SELECT" = "X" ]; then \
-	    UNAME=`uname`; \
-	    if [ "$$UNAME" = "Darwin" ]; then \
-		PLATFORM_CFLAGS="-DHAVE_KQUEUE"; \
-	    elif [ "$$UNAME" = "Linux" ]; then \
-		KERNEL_VERSION=`uname -r | cut -d- -f1`; \
-		MIN_VERSION=2.6.27; \
-		SMALLER_VERSION=`echo "$$KERNEL_VERSION$$MIN_VERSION" | sort -V | head -1`; \
-		if [ "$$SMALLER_VERSION" != "$$MIN_VERSION" ]; then \
-		    PLATFORM_CFLAGS="-DHAVE_EPOLL"; \
-		fi; \
-	    fi; \
-	fi; \
-	for i in $(SOURCES); do \
-	    echo "$(CC) $(CFLAGS) $$PLATFORM_CFLAGS -c $$i -o $${i%.*}.o"; \
-	    $(CC) $(CFLAGS) $$PLATFORM_CFLAGS -c $$i -o $${i%.*}.o; \
-	done
+docset:
+	mkdir -p $(DOCSET_DOCUMENTS)
+	cp Nodes.xml $(DOCSET_RESOURCES)
+	cp Tokens.xml $(DOCSET_RESOURCES)
+	cp Info.plist $(DOCSET_CONTENTS)
+	tar --exclude $(DOCSET_NAME) \
+	    --exclude Nodes.xml \
+	    --exclude Tokens.xml \
+	    --exclude Info.plist \
+	    --exclude Makefile -c -f - . \
+	    | (cd $(DOCSET_DOCUMENTS); tar xvf -)
+	$(XCODE_INSTALL)/usr/bin/docsetutil index $(DOCSET_NAME)
+	rm -f $(DOCSET_DOCUMENTS)/Nodes.xml
+	rm -f $(DOCSET_DOCUMENTS)/Info.plist
+	rm -f $(DOCSET_DOCUMENTS)/Makefile
+	rm -f $(DOCSET_RESOURCES)/Nodes.xml
+	rm -f $(DOCSET_RESOURCES)/Tokens.xml
 
 clean:
-	rm -f src/*.o
-	rm -f test/*_test
-	rm -f libiomux.a
-	rm -f libiomux.$(SHAREDEXT)
+	rm -rf $(DOCSET_NAME)
 
-.PHONY: libut
-libut:
-	@if [ ! -f support/libut/Makefile ]; then git submodule init; git submodule update; fi; make -C support/libut
+install: docset
+	mkdir -p $(DESTDIR)
+	cp -R $(DOCSET_NAME) $(DESTDIR)
 
-.PHONY: tests
-tests: CFLAGS += -Isrc -Isupport/libut/src -Wall -Werror -Wno-parentheses -Wno-pointer-sign -DTHREAD_SAFE -g -O3
-tests: libut static
-	@for i in $(TESTS); do\
-	  echo "$(CC) $(CFLAGS) $$i.c -o $$i libiomux.a $(LDFLAGS) -lm";\
-	  $(CC) $(CFLAGS) $$i.c -o $$i libiomux.a support/libut/libut.a $(LDFLAGS) -lm;\
-	done;\
-	for i in $(TEST_EXEC_ORDER); do echo; test/$$i; echo; done
+uninstall:
+	rm -rf $(DESTDIR)/$(DOCSET_NAME)
 
-.PHONY: test
-test: tests
-
-install:
-	 @echo "Installing libraries in $(LIBDIR)"; \
-	 cp -v libiomux.a $(LIBDIR)/;\
-	 cp -v libiomux.$(SHAREDEXT) $(LIBDIR)/;\
-	 echo "Installing headers in $(INCDIR)"; \
-	 cp -v src/iomux.h $(INCDIR)/;
+always:

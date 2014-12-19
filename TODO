@@ -1,2 +1,0 @@
-- check for pending input/output when a new fd is added to the mux (via iomux_add())
-  instead of waiting for the next iomux_run() cycle before the new fd is taken into account
