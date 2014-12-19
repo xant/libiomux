@@ -1,2 +1,4 @@
+- when using the epoll backend (HAVE_EPOLL) make also use of timerfd to implement timers and fd-timeouts
+  (instead of the internal pqueue-based implementation).
 - check for pending input/output when a new fd is added to the mux (via iomux_add())
   instead of waiting for the next iomux_run() cycle before the new fd is taken into account
