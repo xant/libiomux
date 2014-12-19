@@ -1071,11 +1071,26 @@ iomux_poll_connection(iomux_t *iomux, iomux_connection_t *connection, struct tim
             chunk->free = (mode != IOMUX_OUTPUT_MODE_NONE);
             chunk->len = len;
             TAILQ_INSERT_TAIL(&connection->output_queue, chunk, next);
+#if defined(HAVE_EPOLL)
+            // NOTE: In the epoll implementation we want to register a filedescriptor
+            //       for input events only if no data was in the queue but a new chunk
+            //       was provided via a mux_output callback
+            return 1;
+#endif
         }
     }
 
+#if !defined(HAVE_EPOLL)
+    // NOTE: Both kqueue and select implementation need to actively
+    //       register for output events at each call so we need
+    //       to notify back that there is pending data.
+    //       In the epoll implementation instead, filedescriptor are
+    //       registered for output events only once so if there was
+    //       already a chunk in the queue, the filedescriptor was
+    //       presumably already registered for output events.
     if (chunk)
         return 1;
+#endif
 
     return 0;
 }
