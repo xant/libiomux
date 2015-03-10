@@ -76,7 +76,6 @@ typedef struct __iomux_connection_s {
     int bufsize;
     int eof;
     int inlen;
-    int outlen;
     struct timeval expire_time;
     TAILQ_ENTRY(__iomux_connection_s) next;
 #if defined(HAVE_KQUEUE)
@@ -334,7 +333,8 @@ iomux_remove(iomux_t *iomux, int fd)
     }
 #endif
     TAILQ_REMOVE(&iomux->connections_list, iomux->connections[fd], next);
-    free(iomux->connections[fd]->inbuf);
+    if (iomux->connections[fd]->inbuf)
+        free(iomux->connections[fd]->inbuf);
     iomux_output_chunk_t *chunk = TAILQ_FIRST(&iomux->connections[fd]->output_queue);
     while (chunk) {
         TAILQ_REMOVE(&iomux->connections[fd]->output_queue, chunk, next);
@@ -855,6 +855,7 @@ iomux_close(iomux_t *iomux, int fd)
         return 0;
     }
 
+    /*
     if (fcntl(fd, F_GETFD, 0) != -1 && conn->outlen) { // there is pending data
         int retries = 0;
         iomux_output_chunk_t *chunk = TAILQ_FIRST(&conn->output_queue);
@@ -889,6 +890,7 @@ iomux_close(iomux_t *iomux, int fd)
             chunk = TAILQ_FIRST(&conn->output_queue);
         }
     }
+    */
 
     void (*mux_eof)(iomux_t *, int, void *) = conn->cbs.mux_eof;
     void *priv = conn->cbs.priv;
@@ -919,16 +921,6 @@ iomux_isempty(iomux_t *iomux)
     int empty = (TAILQ_FIRST(&iomux->connections_list) == NULL);
     MUTEX_UNLOCK(iomux);
     return empty;
-}
-
-int iomux_write_buffer(iomux_t *iomux, int fd)
-{
-    int len = 0;
-    MUTEX_LOCK(iomux);
-    if (iomux->connections[fd])
-        len = iomux->connections[fd]->bufsize - iomux->connections[fd]->outlen;
-    MUTEX_UNLOCK(iomux);
-    return len;
 }
 
 void
