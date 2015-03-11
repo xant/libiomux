@@ -855,10 +855,9 @@ iomux_close(iomux_t *iomux, int fd)
         return 0;
     }
 
-    /*
-    if (fcntl(fd, F_GETFD, 0) != -1 && conn->outlen) { // there is pending data
+    iomux_output_chunk_t *chunk = TAILQ_FIRST(&conn->output_queue);
+    if (fcntl(fd, F_GETFD, 0) != -1 && chunk) { // there is pending data
         int retries = 0;
-        iomux_output_chunk_t *chunk = TAILQ_FIRST(&conn->output_queue);
         iomux_output_chunk_t *last_chunk = NULL; // XXX - here to silence the static analyzer
         while (chunk && chunk != last_chunk && retries <= IOMUX_FLUSH_MAXRETRIES) {
             int wb = write(fd, chunk->data, chunk->len);
@@ -870,7 +869,7 @@ iomux_close(iomux_t *iomux, int fd)
                     break;
                 }
             } else if (wb == 0) {
-                fprintf(stderr, "%s: closing filedescriptor %d with %db pending data\n", __FUNCTION__, fd, conn->outlen);
+                fprintf(stderr, "%s: closing filedescriptor %d with pending data\n", __FUNCTION__, fd);
                 break;
             }
             TAILQ_REMOVE(&conn->output_queue, chunk, next);
@@ -890,7 +889,6 @@ iomux_close(iomux_t *iomux, int fd)
             chunk = TAILQ_FIRST(&conn->output_queue);
         }
     }
-    */
 
     void (*mux_eof)(iomux_t *, int, void *) = conn->cbs.mux_eof;
     void *priv = conn->cbs.priv;
