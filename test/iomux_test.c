@@ -336,7 +336,18 @@ main(int argc, char **argv)
 
     iomux_loop(mux, &tv);
 
+    
+    iomux_t *mux2 = iomux_create(0, 0);
+    iomux_move(mux, mux2);
 
+    ut_testing("iomux_write(mux2, client, %s, %d)", TEST_STRING, strlen(TEST_STRING));
+    ut_validate_int(iomux_write(mux2, client, TEST_STRING, strlen(TEST_STRING), IOMUX_OUTPUT_MODE_NONE), strlen(TEST_STRING));
+
+    ut_testing("iomux_input_callback() callback");
+    iomux_loop(mux2, NULL);
+    ut_success();
+
+    iomux_destroy(mux2);
     iomux_destroy(mux);
 
     close(server);

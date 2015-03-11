@@ -1439,4 +1439,59 @@ iomux_run(iomux_t *iomux, struct timeval *tv_default)
 
 #endif
 
+static int
+iomux_binheap_iterator_move_callback(bh_t *bh, uint64_t key, void *value, size_t vlen, void *priv)
+{
+    iomux_t *dst = (iomux_t *)priv;
+    iomux_timeout_t *timeout = (iomux_timeout_t *)value;
+    // XXX - ids might overlap ... they should be recomputed
+    bh_insert(dst->timeouts, timeout->id, timeout, sizeof(iomux_timeout_t));
+    return -1;
+}
+
+int
+iomux_move(iomux_t *src, iomux_t *dst)
+{
+    int count = 0;
+
+    MUTEX_LOCK(src);
+    MUTEX_LOCK(dst);
+
+
+    iomux_connection_t *connection = NULL;
+    iomux_connection_t *tmp;
+    TAILQ_FOREACH_SAFE(connection, &src->connections_list, next, tmp) {
+
+        int fd = connection->fd;
+
+        iomux_callbacks_t cbs;
+        memcpy(&cbs, &connection->cbs, sizeof(cbs));
+
+        if (iomux_add(dst, fd, &cbs)) {
+            iomux_connection_t *new_connection = dst->connections[fd];
+            free(new_connection->inbuf);
+            new_connection->inbuf = connection->inbuf;
+            new_connection->bufsize = connection->bufsize;
+            new_connection->inlen = connection->inlen;
+            connection->inbuf = NULL;
+            connection->bufsize = 0;
+            iomux_output_chunk_t *chunk = NULL;
+            iomux_output_chunk_t *ctmp;
+            TAILQ_FOREACH_SAFE(chunk, &connection->output_queue, next, ctmp) {
+                TAILQ_REMOVE(&connection->output_queue, chunk, next);
+                TAILQ_INSERT_TAIL(&new_connection->output_queue, chunk, next);
+            }
+        }
+
+        iomux_remove(src, connection->fd);
+        count++;
+    }
+
+    bh_foreach(src->timeouts, iomux_binheap_iterator_move_callback, (void *)dst);
+
+    MUTEX_UNLOCK(src);
+    MUTEX_UNLOCK(dst);
+
+    return count;
+}
 

@@ -353,16 +353,6 @@ void iomux_clear(iomux_t *iomux);
 int iomux_isempty(iomux_t *iomux);
 
 /**
- * @brief Get the available write buffer size for the given fd
- * @param iomux A valid iomux handler
- * @param fd The filedescriptor for which to check the available write buffer
- *           size
- * @return The available size (in bytes), -1 if the filedescriptor is unknown
- *         to the mux
- */
-int iomux_write_buffer(iomux_t *iomux, int fd);
-
-/**
  * @brief Return the callbacks descriptor for the given fd
  * @param iomux A valid iomux handler
  * @param fd The filedescriptor for which to return the callbacks descriptor
@@ -374,6 +364,8 @@ int iomux_write_buffer(iomux_t *iomux, int fd);
 iomux_callbacks_t *iomux_callbacks(iomux_t *iomux, int fd);
 
 int iomux_num_fds(iomux_t *iomux);
+
+int iomux_move(iomux_t *src, iomux_t *dst);
 
 #ifndef NO_PTHREAD
 typedef struct __iomtee_s iomtee_t;
