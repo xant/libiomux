@@ -32,9 +32,7 @@
 #include <sys/event.h>
 #endif
 
-#ifndef
-#define _POSIX_C_SOURCE
-#endif
+#define __USE_UNIX98
 #include <pthread.h>
 
 #include "bsd_queue.h"
