@@ -32,7 +32,7 @@
 #include <sys/event.h>
 #endif
 
-#define __USE_UNIX98
+#define _POSIX_C_SOURCE
 #include <pthread.h>
 
 #include "bsd_queue.h"
@@ -45,8 +45,8 @@
 #define IOMUX_CONNECTION_BUFSIZE_DEFAULT (1<<13) // defaults to 8192
 #define IOMUX_CONNECTION_SERVER (1)
 
-#define MUTEX_LOCK(__iom) if (__iom->lock) pthread_mutex_lock(__iom->lock);
-#define MUTEX_UNLOCK(__iom) if (__iom->lock) pthread_mutex_unlock(__iom->lock);
+#define MUTEX_LOCK(_iom) if (_iom->lock && __builtin_expect(pthread_mutex_lock((_iom->lock)) != 0, 0)) { abort(); }
+#define MUTEX_UNLOCK(_iom) if (_iom->lock && __builtin_expect(pthread_mutex_unlock((_iom->lock)) != 0, 0)) { abort(); }
 
 #ifndef O_CLOEXEC
 #define O_CLOEXEC 0
@@ -56,28 +56,28 @@ void iomux_run(iomux_t *iomux, struct timeval *tv_default);
 
 int iomux_hangup = 0;
 
-typedef struct __iomux_output_chunk_s {
+typedef struct _iomux_output_chunk_s {
     unsigned char *data;
     int len;
     int free;
     int offset;
-    TAILQ_ENTRY(__iomux_output_chunk_s) next;
+    TAILQ_ENTRY(_iomux_output_chunk_s) next;
 } iomux_output_chunk_t;
 
 //! \brief iomux connection strucure
-typedef struct __iomux_connection_s {
+typedef struct _iomux_connection_s {
     int fd;
     uint32_t flags;
     iomux_callbacks_t cbs;
     unsigned char *inbuf;
     int output_len;
-    TAILQ_HEAD(, __iomux_output_chunk_s) output_queue;
+    TAILQ_HEAD(, _iomux_output_chunk_s) output_queue;
 
     int bufsize;
     int eof;
     int inlen;
     struct timeval expire_time;
-    TAILQ_ENTRY(__iomux_connection_s) next;
+    TAILQ_ENTRY(_iomux_connection_s) next;
 #if defined(HAVE_KQUEUE)
     int16_t kfilters[2];
     struct kevent event[2];
@@ -85,7 +85,7 @@ typedef struct __iomux_connection_s {
 } iomux_connection_t;
 
 //! \brief iomux timeout structure
-typedef struct __iomux_timeout {
+typedef struct _iomux_timeout {
     iomux_timeout_id_t id;
     struct timeval expire_time;
     void (*cb)(iomux_t *iomux, void *priv);
@@ -94,9 +94,9 @@ typedef struct __iomux_timeout {
 } iomux_timeout_t;
 
 //! \brief IOMUX base structure
-struct __iomux {
+struct _iomux {
     iomux_connection_t **connections;
-    TAILQ_HEAD(, __iomux_connection_s) connections_list;
+    TAILQ_HEAD(, _iomux_connection_s) connections_list;
     int maxfd;
     int minfd;
     int bufsize;
@@ -189,17 +189,42 @@ iomux_create(int bufsize, int threadsafe)
     iomux->events = calloc(1, sizeof(struct kevent) * (iomux->maxconnections * 2));
 #endif
 
+    if (!iomux->events) {
+        fprintf(stderr, "Errors creating the events array : %s\n", strerror(errno));
+        iomux_destroy(iomux);
+        return NULL;
+    }
+
     iomux->connections = calloc(1, sizeof(iomux_connection_t *) * iomux->maxconnections);
+    if (!iomux->connections) {
+        fprintf(stderr, "Errors creating the connections array : %s\n", strerror(errno));
+        iomux_destroy(iomux);
+        return NULL;
+    }
     TAILQ_INIT(&iomux->connections_list);
 
     iomux->timeouts = bh_create((bh_free_value_callback_t)iomux_timeout_destroy);
+    if (!iomux->timeouts) {
+        fprintf(stderr, "Errors creating the internal binheap to store timeouts\n");
+        iomux_destroy(iomux);
+        return NULL;
+    }
 
     if (threadsafe) {
         iomux->lock = malloc(sizeof(pthread_mutex_t));
+        if (!iomux->lock) {
+            fprintf(stderr, "Can't create the iomux internal mutex : %s\n", strerror(errno));
+            iomux_destroy(iomux);
+            return NULL;
+        }
         pthread_mutexattr_t attr;
         pthread_mutexattr_init(&attr);
         pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
-        pthread_mutex_init(iomux->lock, &attr);
+        if (pthread_mutex_init(iomux->lock, &attr) != 0) {
+            fprintf(stderr, "Can't initialize the iomux internal mutex : %s\n", strerror(errno));
+            iomux_destroy(iomux);
+            return NULL;
+        }
         pthread_mutexattr_destroy(&attr);
     }
     iomux->last_timeout_id = 0;
@@ -210,6 +235,11 @@ iomux_create(int bufsize, int threadsafe)
     //        below the EMFILE limit to then accept() and immediately close()
     //        all pending connections
     iomux->emfile_fd = open("/", O_CLOEXEC);
+    if (iomux->emfile_fd < 0) {
+        fprintf(stderr, "Can't open the internal emfile : %s\n", strerror(errno));
+        iomux_destroy(iomux);
+        return NULL;
+    }
     return iomux;
 }
 

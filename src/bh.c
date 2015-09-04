@@ -3,27 +3,27 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct __binomial_tree_node_s {
+typedef struct _binomial_tree_node_s {
     uint64_t key;
     void *value;
     size_t vlen;
-    struct __binomial_tree_node_s *parent;
-    struct __binomial_tree_node_s **children;
+    struct _binomial_tree_node_s *parent;
+    struct _binomial_tree_node_s **children;
     int num_children;
     bh_t *bh;
-    TAILQ_ENTRY(__binomial_tree_node_s) next;
+    TAILQ_ENTRY(_binomial_tree_node_s) next;
 } binomial_tree_node_t;
 
-struct __bh_s {
-    TAILQ_HEAD(, __binomial_tree_node_s) trees;
+struct _bh_s {
+    TAILQ_HEAD(, _binomial_tree_node_s) trees;
     binomial_tree_node_t *head;
     int count;
     bh_free_value_callback_t free_value_cb;
 };
 
-#define UPDATE_HEAD(__bh) { \
-    __bh->head = NULL;\
-    __bh->head = bh_get_minimum(__bh, NULL); \
+#define UPDATE_HEAD(_bh) { \
+    _bh->head = NULL;\
+    _bh->head = bh_get_minimum(_bh, NULL); \
 }
 
 static int
@@ -207,7 +207,7 @@ static int binomial_tree_merge(binomial_tree_node_t *node1, binomial_tree_node_t
 }
 
 static binomial_tree_node_t *
-__bh_maxmin(bh_t *bh, uint32_t *index, int maxmin)
+_bh_maxmin(bh_t *bh, uint32_t *index, int maxmin)
 {
     binomial_tree_node_t *node = NULL;
     binomial_tree_node_t *curtree = NULL;
@@ -239,7 +239,7 @@ bh_get_minimum(bh_t *bh, uint32_t *minidx)
     if (bh->head)
         return bh->head;
 
-    binomial_tree_node_t *minroot = __bh_maxmin(bh, minidx, 1);
+    binomial_tree_node_t *minroot = _bh_maxmin(bh, minidx, 1);
 
     return minroot;
 }
@@ -247,7 +247,7 @@ bh_get_minimum(bh_t *bh, uint32_t *minidx)
 static binomial_tree_node_t *
 bh_get_maximum(bh_t *bh, uint32_t *maxidx)
 {
-    binomial_tree_node_t *maxroot = __bh_maxmin(bh, maxidx, 0);
+    binomial_tree_node_t *maxroot = _bh_maxmin(bh, maxidx, 0);
 
     if (!maxroot)
         return NULL;

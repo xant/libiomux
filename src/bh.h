@@ -3,8 +3,8 @@
  *
  */
 
-#ifndef __BH_H__
-#define __BH_H__
+#ifndef IOMUX_BH_H
+#define IOMUX_BH_H
 
 #include <sys/types.h>
 #include <stdint.h>
@@ -12,7 +12,7 @@
 /**
  * @brief Opaque structure representing the heap
  */
-typedef struct __bh_s bh_t;
+typedef struct _bh_s bh_t;
 
 typedef void (*bh_free_value_callback_t)(void *value);
 

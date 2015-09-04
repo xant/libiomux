@@ -5,8 +5,8 @@
  *
  */
 
-#ifndef __IOMUX_H__
-#define __IOMUX_H__
+#ifndef IOMUX_H
+#define IOMUX_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,7 +17,7 @@ extern "C" {
 //! if set to true, the hangup callback (if any) will be called at the end of the current runcycle
 extern int iomux_hangup;
 
-typedef struct __iomux iomux_t;
+typedef struct _iomux iomux_t;
 typedef void (*iomux_cb_t)(iomux_t *iomux, void *priv);
 
 typedef uint64_t iomux_timeout_id_t;
@@ -104,7 +104,7 @@ typedef void (*iomux_free_data_callback_t)(iomux_t *iomux, int fd, unsigned char
  * @struct iomux_callbacks_t
  * @brief iomux callbacks structure
  */
-typedef struct __iomux_callbacks {
+typedef struct _iomux_callbacks {
     //! The callback called when there is new data on the monitored fd
     iomux_input_callback_t mux_input;
     //! If not NULL, it will be called when it's possible to write new data on fd 
@@ -368,7 +368,7 @@ int iomux_num_fds(iomux_t *iomux);
 int iomux_move(iomux_t *src, iomux_t *dst);
 
 #ifndef NO_PTHREAD
-typedef struct __iomtee_s iomtee_t;
+typedef struct _iomtee_s iomtee_t;
 
 /**
  * @brief Open a new multi-tee

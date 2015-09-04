@@ -13,15 +13,15 @@
 #include "bsd_queue.h"
 #include "iomux.h"
 
-typedef struct __iomtee_fd_s {
+typedef struct _iomtee_fd_s {
     int fd;
     int rofx;
-    TAILQ_ENTRY(__iomtee_fd_s) next;
+    TAILQ_ENTRY(_iomtee_fd_s) next;
 } iomtee_fd_t;
 
-struct __iomtee_s {
+struct _iomtee_s {
     iomux_t *iomux;
-    TAILQ_HEAD(, __iomtee_fd_s) fds;
+    TAILQ_HEAD(, _iomtee_fd_s) fds;
     char buf[65535];
     int wofx;
     int blen;
