@@ -315,6 +315,12 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
         memcpy(&connection->cbs, cbs, sizeof(connection->cbs));
 
         connection->inbuf = malloc(iomux->bufsize);
+        if (!connection->inbuf) {
+            set_error(iomux, "Can't allocate memory for the input buffer: %s", strerror(errno));
+            MUTEX_UNLOCK(iomux);
+            free(connection);
+            return 0;
+        }
         TAILQ_INIT(&connection->output_queue);
         connection->bufsize = iomux->bufsize;
         connection->fd = fd;
@@ -335,6 +341,10 @@ iomux_add(iomux_t *iomux, int fd, iomux_callbacks_t *cbs)
 
         MUTEX_UNLOCK(iomux);
         return 1;
+    } else {
+        set_error(iomux, "Can't create a new connection :  %s", strerror(errno));
+        MUTEX_UNLOCK(iomux);
+        return 0;
     }
     MUTEX_UNLOCK(iomux);
     return 0;
@@ -410,8 +420,10 @@ iomux_schedule(iomux_t *iomux,
 {
     iomux_timeout_t *timeout;
 
-    if (!tv || !cb)
+    if (!tv || !cb) {
+        // TODO - set an error message
         return 0;
+    }
 
     MUTEX_LOCK(iomux);
 
@@ -421,6 +433,11 @@ iomux_schedule(iomux_t *iomux,
         memcpy(&iomux->last_timeout_check, &now, sizeof(struct timeval));
 
     timeout = (iomux_timeout_t *)calloc(1, sizeof(iomux_timeout_t));
+    if (!timeout) {
+        // TODO - set an error message
+        MUTEX_UNLOCK(iomux);
+        return 0;
+    }
     timeradd(&now, tv, &timeout->expire_time);
     timeout->cb = cb;
     timeout->priv = priv;
@@ -828,9 +845,18 @@ int
 iomux_write(iomux_t *iomux, int fd, unsigned char *buf, int len, int mode)
 {
     iomux_output_chunk_t *chunk = calloc(1, sizeof(iomux_output_chunk_t));
+    if (!chunk) {
+        set_error(iomux, "%s: Can't allocate memory for the new chunk", __FUNCTION__, strerror(errno));
+        return 0;
+    }
     chunk->free = (mode != IOMUX_OUTPUT_MODE_NONE);
     if (mode == IOMUX_OUTPUT_MODE_COPY) {
         chunk->data = malloc(len);
+        if (!chunk->data) {
+            set_error(iomux, "%s: Can't allocate memory for the chunk data", __FUNCTION__, strerror(errno));
+            free(chunk);
+            return 0;
+        }
         memcpy(chunk->data, buf, len);
     } else {
         // TODO - check for unknown output modes
@@ -1087,8 +1113,18 @@ iomux_poll_connection(iomux_t *iomux, iomux_connection_t *connection, struct tim
 
         if (data) {
             chunk = calloc(1, sizeof(iomux_output_chunk_t));
+            if (!chunk) {
+                set_error(iomux, "%s: Can't allocate memory for the new chunk", __FUNCTION__, strerror(errno));
+                free(chunk);
+                return 0;
+            }
             if (mode == IOMUX_OUTPUT_MODE_COPY) {
                 chunk->data = malloc(len);
+                if (!chunk->data) {
+                    set_error(iomux, "%s: Can't allocate memory for the chunk data", __FUNCTION__, strerror(errno));
+                    free(chunk);
+                    return 0;
+                }
                 memcpy(chunk->data, data, len);
             } else {
                 chunk->data = data;
