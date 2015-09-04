@@ -179,6 +179,11 @@ iomux_create(int bufsize, int threadsafe)
         return NULL;
     }
     iomux->events = calloc(1, sizeof(struct epoll_event) * iomux->maxconnections);
+    if (!iomux->events) {
+        fprintf(stderr, "Errors creating the events array : %s\n", strerror(errno));
+        iomux_destroy(iomux);
+        return NULL;
+    }
 #elif defined(HAVE_KQUEUE)
     iomux->kfd = kqueue();
     if (iomux->kfd == -1) {
@@ -187,13 +192,13 @@ iomux_create(int bufsize, int threadsafe)
         return NULL;
     }
     iomux->events = calloc(1, sizeof(struct kevent) * (iomux->maxconnections * 2));
-#endif
-
     if (!iomux->events) {
         fprintf(stderr, "Errors creating the events array : %s\n", strerror(errno));
         iomux_destroy(iomux);
         return NULL;
     }
+#endif
+
 
     iomux->connections = calloc(1, sizeof(iomux_connection_t *) * iomux->maxconnections);
     if (!iomux->connections) {
