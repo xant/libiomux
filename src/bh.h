@@ -39,6 +39,8 @@ void bh_destroy(bh_t *bh);
  * @param vlen  The size of the value
  * @return 0 if a new node has been inserted successfully;
  *         -1 otherwise
+ * @note if -1 is returned it means that no more memory is available
+ *       and the heap has to be considered irremediably corrupted
  */
 int bh_insert(bh_t *bh, uint64_t key, void *value, size_t vlen);
 
@@ -149,7 +151,10 @@ void bh_decrease_key(bh_t *bh, uint64_t key, int decr);
  * @param bh2 A valid pointer to an initialized bh_t structure
  * @return A newly created heap which will contain the union of the items
  *         stored in both the heaps (bh1 and bh2) provided as argument.
- *         The caller is responsible of disposing the new heap.
+ *         The caller is responsible of disposing the new heap.\n
+ *         NULL is returned in case of error.
+ * @note if NULL is returned it means there is no more available memory
+ *       and the heap has to be considered irremediably corrupted
  * @note Both bh1 and bh2 will be empty once merged in the new returned heap.
  *       The caller is responsible of disposing both of them if not necessary
  *       anymore (otherwise further operations on the original heaps are still
@@ -157,6 +162,7 @@ void bh_decrease_key(bh_t *bh, uint64_t key, int decr);
  * @note The two heaps MUST be configured to use the same operational mode
  *       for them to be merged. If the operational modes differ no merge 
  *       will be attempted and NULL will be returned
+ *
  */
 bh_t *bh_merge(bh_t *bh1, bh_t *bh2);
 

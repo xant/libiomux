@@ -30,7 +30,12 @@ static int
 binomial_tree_node_add(binomial_tree_node_t *node,
                        binomial_tree_node_t *child)
 {
-    node->children = realloc(node->children, sizeof(binomial_tree_node_t *) * (node->num_children + 1));
+    binomial_tree_node_t **children = realloc(node->children, sizeof(binomial_tree_node_t *) * (node->num_children + 1));
+    if (!children)
+        return -1;
+
+    node->children = children;
+
     node->children[node->num_children++] = child;
     if (child->parent) {
         // TODO - remove the node
@@ -159,10 +164,13 @@ binomial_tree_node_destroy(binomial_tree_node_t *node, bh_free_value_callback_t 
     }
 
     for (i = 0; i < node->num_children; i++) {
-        if (new_parent)
-            binomial_tree_node_add(new_parent, node->children[i]);
-        else
+        if (new_parent) {
+            if (binomial_tree_node_add(new_parent, node->children[i]) != 0) {
+                // TODO - Error Messages, the tree is corrupted (OOM occurred)
+            }
+        } else {
             node->children[i]->parent = NULL;
+        }
     }
 
     node->bh->count--;
@@ -180,6 +188,8 @@ bh_t *
 bh_create(bh_free_value_callback_t free_value_cb)
 {
     bh_t *bh = calloc(1, sizeof(bh_t));
+    if (!bh)
+        return NULL;
     bh->free_value_cb = free_value_cb;
     TAILQ_INIT(&bh->trees);
     return bh;
@@ -200,7 +210,10 @@ bh_destroy(bh_t *bh)
 
 static int binomial_tree_merge(binomial_tree_node_t *node1, binomial_tree_node_t *node2)
 {
-    node1->children = realloc(node1->children, sizeof(binomial_tree_node_t *) * (node1->num_children + 1));
+    binomial_tree_node_t **children = realloc(node1->children, sizeof(binomial_tree_node_t *) * (node1->num_children + 1));
+    if (!children)
+        return -1;
+    node1->children = children;
     node1->children[node1->num_children++] = node2;
     node2->parent = node1;
     return 0;
@@ -266,6 +279,9 @@ int
 bh_insert(bh_t *bh, uint64_t key, void *value, size_t vlen)
 {
     binomial_tree_node_t *node = calloc(1, sizeof(binomial_tree_node_t));
+    if (!node)
+        return -1;
+
     node->bh = bh;
     node->key = key;
     node->value = value;
@@ -276,9 +292,11 @@ bh_insert(bh_t *bh, uint64_t key, void *value, size_t vlen)
         TAILQ_REMOVE(&bh->trees, tree, next);
     while (tree && tree->num_children == order) {
         if (node->key <= tree->key) {
-            binomial_tree_merge(node, tree);
+            if (binomial_tree_merge(node, tree) != 0)
+                return -1;
         } else {
-            binomial_tree_merge(tree, node);
+            if (binomial_tree_merge(tree, node) != 0)
+                return -1;
             node = tree;
         }
         order++;
@@ -492,9 +510,11 @@ bh_t *bh_merge(bh_t *bh1, bh_t *bh2)
 
             if (node) {
                 if (node->key <= carry->key) {
-                    binomial_tree_merge(node, carry);
+                    if (binomial_tree_merge(node, carry) != 0)
+                        return NULL;
                 } else {
-                    binomial_tree_merge(carry, node);
+                    if (binomial_tree_merge(carry, node) != 0)
+                        return NULL;
                     if (node == node1)
                         node1 = carry;
                     else
@@ -550,25 +570,31 @@ bh_t *bh_merge(bh_t *bh1, bh_t *bh2)
         // if we are here node1 and node2 have the same order so they
         // need to be merged
         if (node1->key <= node2->key) {
-            binomial_tree_merge(node1, node2);
+            if (binomial_tree_merge(node1, node2) != 0)
+                return NULL;
             if (carry) {
                 if (node1->key >= carry->key) {
-                    binomial_tree_merge(node1, carry);
+                    if (binomial_tree_merge(node1, carry) != 0)
+                        return NULL;
                     carry = node1;
                 } else {
-                    binomial_tree_merge(carry, node1);
+                    if (binomial_tree_merge(carry, node1) != 0)
+                        return NULL;
                 }
             } else {
                 carry = node1;
             }
         } else {
-            binomial_tree_merge(node2, node1);
+            if (binomial_tree_merge(node2, node1) != 0)
+                return NULL;
             if (carry) {
                 if (node2->key <= carry->key) {
-                    binomial_tree_merge(node2, carry);
+                    if (binomial_tree_merge(node2, carry) != 0)
+                        return NULL;
                     carry = node2;
                 } else {
-                    binomial_tree_merge(carry, node2);
+                    if (binomial_tree_merge(carry, node2) != 0)
+                        return NULL;
                 }
             } else {
                 carry = node2;

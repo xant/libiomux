@@ -447,7 +447,12 @@ iomux_schedule(iomux_t *iomux,
     timeout->id = (uint64_t)((expire << 8) | (uint8_t)(++iomux->last_timeout_id % 256));
 
     // keep the list sorted in ascending order
-    bh_insert(iomux->timeouts, timeout->id, timeout, sizeof(iomux_timeout_t));
+    if (bh_insert(iomux->timeouts, timeout->id, timeout, sizeof(iomux_timeout_t)) != 0) {
+        fprintf(stderr, "Can't insert a new node in the binomial heap\n");
+        MUTEX_UNLOCK(iomux);
+        free(timeout);
+        return 0;
+    }
     MUTEX_UNLOCK(iomux);
     return timeout->id;
 }
@@ -801,10 +806,13 @@ iomux_run_timeouts(iomux_t *iomux)
     while (bh_delete_minimum(iomux->timeouts, &timeout_ptr, NULL) == 0) {
         timeout = (iomux_timeout_t *)timeout_ptr;
         if (timercmp(&now, &timeout->expire_time, <)) {
-            bh_insert(iomux->timeouts,
-                      timeout->id,
-                      timeout,
-                      sizeof(iomux_timeout_t));
+            if (bh_insert(iomux->timeouts,
+                          timeout->id,
+                          timeout,
+                          sizeof(iomux_timeout_t)) != 0)
+            {
+                fprintf(stderr, "%s: Can't insert a new node in the binomial heap\n", __FUNCTION__);
+            }
             break;
         }
         // run expired timeouts
@@ -1514,7 +1522,8 @@ iomux_binheap_iterator_move_callback(bh_t *bh, uint64_t key, void *value, size_t
     iomux_t *dst = (iomux_t *)priv;
     iomux_timeout_t *timeout = (iomux_timeout_t *)value;
     // XXX - ids might overlap ... they should be recomputed
-    bh_insert(dst->timeouts, timeout->id, timeout, sizeof(iomux_timeout_t));
+    if (bh_insert(dst->timeouts, timeout->id, timeout, sizeof(iomux_timeout_t)) != 0)
+        fprintf(stderr, "%s: Can't insert a new node in the destination binomial heap\n", __FUNCTION__);
     return -1;
 }
 
