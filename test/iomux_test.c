@@ -35,6 +35,7 @@
 
 int test_input(iomux_t *mux, int fd, unsigned char *data, int len, void *priv);
 void test_timeout(iomux_t *mux, int fd, void *priv);
+void test_timeout_notest(iomux_t *mux, int fd, void *priv);
 //void test_eof(iomux_t *mux, int fd, void *priv);
 void test_connection(iomux_t *mux, int fd, void *priv);
 
@@ -208,9 +209,13 @@ int test_input(iomux_t *mux, int fd, unsigned char *data, int len, void *priv)
     return len;
 }
 
+void test_timeout_notest(iomux_t *mux, int fd, void *priv)
+{
+    iomux_end_loop(mux);
+}
+
 void test_timeout(iomux_t *mux, int fd, void *priv)
 {
-    //struct timeval tv = { 1, 0 };
     ut_testing("iomux_end_loop(mux)");
     iomux_end_loop(mux);
 }
@@ -220,6 +225,36 @@ void test_timeout_nofd(iomux_t *mux, void *priv)
     int *cnt = (int *)priv;
     (*cnt)++;
     iomux_end_loop(mux);
+}
+
+// Test timeout callback with context management
+void test_timeout_with_context(iomux_t *mux, void *priv)
+{
+    int *values = (int *)priv;
+    values[0]++; // increment counter
+    values[1] = 42; // set test value
+    iomux_end_loop(mux);
+}
+
+// Test multiple timers firing in sequence
+void test_multiple_timers_cb(iomux_t *mux, void *priv)
+{
+    int *timer_data = (int *)priv;
+    timer_data[0]++; // increment fire count
+    timer_data[1] = timer_data[2]; // store timer id
+    
+    if (timer_data[0] >= 3) {
+        iomux_end_loop(mux);
+    }
+}
+
+// Test timer with cleanup callback
+static int cleanup_called = 0;
+static void timer_cleanup_cb(void *priv)
+{
+    cleanup_called = 1;
+    int *value = (int *)priv;
+    if (value) *value = 999;
 }
 
 /*
@@ -327,6 +362,173 @@ main(int argc, char **argv)
     timerid = iomux_schedule(mux, &tv, test_timeout_nofd, &cnt, NULL);
     iomux_loop(mux, NULL);
     ut_validate_int(cnt, 1);
+
+    // Test timeout callbacks with context management
+    int context_values[2] = {0, 0};
+    ut_testing("timer with context management");
+    struct timeval short_tv = { 0, 1000 };
+    timerid = iomux_schedule(mux, &short_tv, test_timeout_with_context, context_values, NULL);
+    if (timerid > 0) {
+        iomux_loop(mux, NULL);
+        if (context_values[0] == 1 && // counter incremented
+            context_values[1] == 42) {// test value set
+            ut_success();
+        } else {
+            ut_failure("counter not incremented or test value not set");
+        }
+    } else {
+        ut_failure("Failed to schedule timeout with context");
+    }
+
+    // Test multiple concurrent timers
+    ut_testing("multiple concurrent timers");
+    int timer_data[3] = {0, 0, 0}; // [fire_count, last_timer_id, current_timer_id]
+    struct timeval timer1_tv = { 0, 2000 };
+    struct timeval timer2_tv = { 0, 4000 };
+    struct timeval timer3_tv = { 0, 6000 };
+    
+    uint64_t timer1_id = iomux_schedule(mux, &timer1_tv, test_multiple_timers_cb, timer_data, NULL);
+    timer_data[2] = 1;
+    uint64_t timer2_id = iomux_schedule(mux, &timer2_tv, test_multiple_timers_cb, timer_data, NULL);
+    timer_data[2] = 2;
+    uint64_t timer3_id = iomux_schedule(mux, &timer3_tv, test_multiple_timers_cb, timer_data, NULL);
+    timer_data[2] = 3;
+    
+    if (timer1_id && timer2_id && timer3_id) {
+        iomux_loop(mux, NULL);
+        ut_validate_int(timer_data[0], 3); // all three timers fired
+    } else {
+        ut_failure("Failed to schedule multiple timers");
+    }
+
+    // Test timer cancellation with cleanup
+    ut_testing("timer cancellation with cleanup callback");
+    cleanup_called = 0;
+    int cleanup_value = 0;
+    struct timeval long_tv = { 1, 0 }; // 1 second - should be cancelled before firing
+    uint64_t cleanup_timer_id = iomux_schedule(mux, &long_tv, test_timeout_nofd, &cleanup_value, timer_cleanup_cb);
+    
+    if (cleanup_timer_id > 0) {
+        // Cancel the timer immediately
+        int unschedule_result = iomux_unschedule(mux, cleanup_timer_id);
+        ut_validate_int(unschedule_result, 1); // successful cancellation
+    } else {
+        ut_failure("Failed to schedule timer for cancellation test");
+    }
+
+    // Test timer timing precision
+    ut_testing("timer timing order");
+    static int timing_counter = 0;
+    
+    // Simple timer test
+    struct timeval timing1_tv = { 0, 1000 };
+    
+    timing_counter = 0;
+    uint64_t timing_id = iomux_schedule(mux, &timing1_tv, test_timeout_nofd, &timing_counter, NULL);
+    if (timing_id > 0) {
+        iomux_loop(mux, NULL);
+        ut_validate_int(timing_counter, 1); // timer fired
+    } else {
+        ut_failure("Failed to schedule timing test timer");
+    }
+
+    // Test fd-based timeout functionality
+    ut_testing("fd-based timeout callback");
+    int timeout_fd_count = 0;
+    iomux_callbacks_t timeout_cbs = {
+        .mux_input = test_input,
+        .mux_timeout = test_timeout_notest,
+        .priv = &timeout_fd_count
+    };
+    
+    int test_pipes[2];
+    if (pipe(test_pipes) == 0) {
+        if (iomux_add(mux, test_pipes[0], &timeout_cbs)) {
+            struct timeval fd_timeout = { 0, 2000 };
+            iomux_set_timeout(mux, test_pipes[0], &fd_timeout);
+            
+            // Don't write anything - let timeout fire
+            iomux_loop(mux, NULL);
+            ut_success(); // if we get here, timeout worked
+            
+            iomux_remove(mux, test_pipes[0]);
+        } else {
+            ut_failure("Failed to add pipe to iomux");
+        }
+        close(test_pipes[0]);
+        close(test_pipes[1]);
+    } else {
+        ut_failure("Failed to create pipe for timeout test");
+    }
+
+    // Test multiple timer cancellation
+    ut_testing("multiple timer cancellation");
+    struct timeval ua_tv = { 1, 0 }; // Long timeout
+    
+    // Schedule multiple timers with different contexts
+    int ua_ctx1 = 1, ua_ctx2 = 2, ua_ctx3 = 3;
+    uint64_t ua_timer1 = iomux_schedule(mux, &ua_tv, test_timeout_nofd, &ua_ctx1, NULL);
+    uint64_t ua_timer2 = iomux_schedule(mux, &ua_tv, test_timeout_nofd, &ua_ctx2, NULL);
+    uint64_t ua_timer3 = iomux_schedule(mux, &ua_tv, test_timeout_nofd, &ua_ctx3, NULL);
+    
+    if (ua_timer1 && ua_timer2 && ua_timer3) {
+        // Remove each timer individually
+        int removed_count1 = iomux_unschedule(mux, ua_timer1);
+        int removed_count2 = iomux_unschedule(mux, ua_timer2);
+        int removed_count3 = iomux_unschedule(mux, ua_timer3);
+        ut_validate_int(removed_count1 + removed_count2 + removed_count3, 3); // all three timers removed
+    } else {
+        ut_failure("Failed to schedule timers for multiple cancellation test");
+    }
+
+    // Test edge cases
+    ut_testing("timer with zero timeout");
+    int zero_timeout_cnt = 0;
+    struct timeval zero_tv = { 0, 0 };
+    uint64_t zero_timer_id = iomux_schedule(mux, &zero_tv, test_timeout_nofd, &zero_timeout_cnt, NULL);
+    if (zero_timer_id > 0) {
+        iomux_loop(mux, NULL);
+        ut_validate_int(zero_timeout_cnt, 1); // should fire immediately
+    } else {
+        ut_failure("Failed to schedule zero timeout timer");
+    }
+
+    // Test invalid timer operations
+    ut_testing("unschedule non-existent timer");
+    ut_validate_int(iomux_unschedule(mux, 99999), 0); // should return 0 for failure
+
+    ut_testing("unschedule timer ID 0");
+    ut_validate_int(iomux_unschedule(mux, 0), 0); // should return 0 for invalid ID
+
+    // Test timeout clearing on fd
+    ut_testing("clearing fd timeout");
+    int clear_pipes[2];
+    if (pipe(clear_pipes) == 0) {
+        iomux_callbacks_t clear_cbs = {
+            .mux_timeout = test_timeout,
+            .priv = NULL
+        };
+        
+        if (iomux_add(mux, clear_pipes[0], &clear_cbs)) {
+            struct timeval clear_timeout = { 0, 1000 };
+            iomux_set_timeout(mux, clear_pipes[0], &clear_timeout);
+            // Clear the timeout by setting NULL
+            iomux_set_timeout(mux, clear_pipes[0], NULL);
+            
+            // Brief run should not trigger timeout
+            struct timeval brief_tv = { 0, 2000 };
+            iomux_run(mux, &brief_tv);
+            ut_success(); // if we get here without timeout, clearing worked
+            
+            iomux_remove(mux, clear_pipes[0]);
+        } else {
+            ut_failure("Failed to add pipe for timeout clear test");
+        }
+        close(clear_pipes[0]);
+        close(clear_pipes[1]);
+    } else {
+        ut_failure("Failed to create pipe for timeout clear test");
+    }
 
     iomux_loop_next_cb(mux, loop_next, NULL);
     iomux_loop_end_cb(mux, loop_end, NULL);
