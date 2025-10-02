@@ -81,7 +81,6 @@ binomial_tree_node_find_max_child(binomial_tree_node_t *node)
 static void
 binomial_tree_node_increase_key(binomial_tree_node_t *node, int incr)
 {
-    uint64_t nkey = 0;
 
     if (incr == 0)
         return;
@@ -90,7 +89,6 @@ binomial_tree_node_increase_key(binomial_tree_node_t *node, int incr)
 
     binomial_tree_node_t *parent = node->parent;
 
-    int swapped = 0;
     while (parent && parent->key < node->key)
     {
         binomial_tree_node_t tmp;
@@ -98,7 +96,7 @@ binomial_tree_node_increase_key(binomial_tree_node_t *node, int incr)
         tmp.value = parent->value;
         tmp.vlen = parent->vlen;
 
-        parent->key = nkey;
+        parent->key = node->key;
         parent->value = node->value;
         parent->vlen = node->vlen;
 
@@ -109,12 +107,7 @@ binomial_tree_node_increase_key(binomial_tree_node_t *node, int incr)
         binomial_tree_node_t *op = parent;
         parent = parent->parent; 
         node = op;
-        swapped++;
     }
-
-    if (!swapped)
-        node->key = nkey;
-
 }
 
 static void
