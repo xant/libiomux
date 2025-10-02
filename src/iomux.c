@@ -1088,7 +1088,7 @@ iomux_poll_connection(iomux_t *iomux, iomux_connection_t *connection, struct tim
     }
 
     if (connection->expire_time.tv_sec) {
-        if (timercmp(now, &connection->expire_time, <)) {
+        if (timercmp(now, &connection->expire_time, >)) {
             memset(&connection->expire_time, 0, sizeof(connection->expire_time));
             if (connection->cbs.mux_timeout) {
                 connection->cbs.mux_timeout(iomux, fd, connection->cbs.priv);
