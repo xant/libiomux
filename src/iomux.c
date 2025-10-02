@@ -829,7 +829,7 @@ iomux_loop(iomux_t *iomux, struct timeval *tv)
     struct timeval tv_default = { 0, 20000 };
     while (!iomux->leave) {
         if (iomux->loop_next_cb)
-            iomux->loop_next_cb(iomux, iomux->loop_end_priv);
+            iomux->loop_next_cb(iomux, iomux->loop_next_priv);
 
         iomux_run(iomux, tv ? tv : &tv_default);
 
