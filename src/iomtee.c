@@ -34,8 +34,8 @@ static int iomtee_write_buffer(iomtee_t *tee, void *data, int len)
 {
     int min_rofx = tee->wofx;
     // XXX - inefficient
-    iomtee_fd_t *tfd;
-    TAILQ_FOREACH(tfd, &tee->fds, next) {
+    iomtee_fd_t *tfd, *tmp;
+    TAILQ_FOREACH_SAFE(tfd, &tee->fds, next, tmp) {
         if (tfd->fd >= 0 && tfd->rofx < min_rofx)
             min_rofx = tfd->rofx;
     }
@@ -80,9 +80,9 @@ iomtee_output(iomux_t *iomux,
 {
     iomtee_t *tee = (iomtee_t *)priv;
     iomtee_fd_t *tfd = NULL;
-    iomtee_fd_t *iter;
+    iomtee_fd_t *iter, *tmp;
 
-    TAILQ_FOREACH(iter, &tee->fds, next) {
+    TAILQ_FOREACH_SAFE(iter, &tee->fds, next, tmp) {
         if (iter->fd == fd) {
             tfd = iter;
             break;
@@ -108,8 +108,8 @@ iomtee_input(iomux_t *iomux, int fd, unsigned char *data, int len, void *priv)
 {
     iomtee_t *tee = (iomtee_t *)priv;
     int min_write = len;
-    iomtee_fd_t *tee_fd;
-    TAILQ_FOREACH(tee_fd, &tee->fds, next) {
+    iomtee_fd_t *tee_fd, *tmp;
+    TAILQ_FOREACH_SAFE(tee_fd, &tee->fds, next, tmp) {
         if (tee_fd->fd == -1)
             continue; // skip closed receivers
         int wb = iomux_write(iomux, tee_fd->fd, data, len, IOMUX_OUTPUT_MODE_COPY);
@@ -145,6 +145,7 @@ iomtee_eof(iomux_t *iomux, int fd, void *priv)
         if (tfd->fd == fd) {
             tfd->fd = -1;
             TAILQ_REMOVE(&tee->fds, tfd, next);
+            free(tfd);
             break;
         }
     }
