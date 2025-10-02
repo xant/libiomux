@@ -877,10 +877,7 @@ iomux_write(iomux_t *iomux, int fd, unsigned char *buf, int len, int mode)
     if (!iomux->connections[fd]) {
         MUTEX_UNLOCK(iomux);
         if (chunk->free) {
-            if (iomux->connections[fd]->cbs.mux_free_data)
-                iomux->connections[fd]->cbs.mux_free_data(iomux, fd, chunk->data, chunk->len, iomux->connections[fd]->cbs.priv);
-            else
-                free(chunk->data);
+            free(chunk->data);
         }
         free(chunk);
         return 0;
