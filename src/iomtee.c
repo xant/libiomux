@@ -61,7 +61,7 @@ iomtee_read_buffer(iomtee_t *tee, iomtee_fd_t *tfd, void *out, int len)
     int read_len = free_space < len ? free_space : len;
     if (tee->wofx > tfd->rofx) {
         memcpy(out, &tee->buf[tfd->rofx], read_len);
-        tfd->rofx += len;
+        tfd->rofx += read_len;
     } else {
         int diff = sizeof(tee->buf) - tfd->rofx;
         memcpy(out, &tee->buf[tfd->rofx], diff);
