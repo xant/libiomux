@@ -850,7 +850,7 @@ iomux_end_loop(iomux_t *iomux)
 }
 
 int
-iomux_write(iomux_t *iomux, int fd, unsigned char *buf, int len, int mode)
+iomux_write(iomux_t *iomux, int fd, unsigned char *buf, int len,  iomux_output_mode_t mode)
 {
     iomux_output_chunk_t *chunk = calloc(1, sizeof(iomux_output_chunk_t));
     if (!chunk) {
