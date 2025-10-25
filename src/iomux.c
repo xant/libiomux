@@ -946,12 +946,12 @@ iomux_close(iomux_t *iomux, int fd)
                 else
                     free(chunk->data);
             }
-            free(chunk);
             // the static analyzer reports a false positive because not able
             // to properly understand the TAILQ_REMOVE macro.
             // The extra check against the last_chunk pointer is here just
             // to silence that warning
             last_chunk = chunk;
+            free(chunk);
             chunk = TAILQ_FIRST(&conn->output_queue);
         }
     }
