@@ -31,7 +31,7 @@ typedef enum {
 /**
  * @brief Handle input coming from a managed filedescriptor
  * @param iomux The iomux handle
- * @param fd The fd the timer relates to
+ * @param fd The fd the event relates to
  * @param data the data read from the filedescriptor
  * @param len the size of the data being provided
  * @param priv the private pointer registered with the callbacks
@@ -46,7 +46,7 @@ typedef int (*iomux_input_callback_t)(iomux_t *iomux, int fd, unsigned char *dat
 /**
  * @brief Callback called to poll for data to be written to a managed filedescriptor
  * @param iomux The iomux handle
- * @param fd The fd the timer relates to
+ * @param fd The fd the event relates to
  * @param data A reference to the pointer to where the data is stored
  * @param len  A pointer to where to store length of the data
  * @param priv the private pointer registered with the callbacks
@@ -63,7 +63,7 @@ typedef iomux_output_mode_t (*iomux_output_callback_t)(iomux_t *iomux, int fd, u
 /*
  * @brief Callback called when a timeout registered using iomux_set_timeout() expires
  * @param iomux The iomux handle
- * @param fd The fd the timer relates to
+ * @param fd The fd the event relates to
  * @param priv the private pointer registered with the callbacks
  */
 typedef void (*iomux_timeout_callback_t)(iomux_t *iomux, int fd, void *priv);
@@ -71,7 +71,7 @@ typedef void (*iomux_timeout_callback_t)(iomux_t *iomux, int fd, void *priv);
 /*
  * @brief Callback called when the end-of-file is detected on a filedescriptor
  * @param iomux The iomux handle
- * @param fd The fd the timer relates to
+ * @param fd The fd the event relates to
  * @param priv the private pointer registered with the callbacks
  * @note No further activity will be notified on the filedescriptor
  *       after this event
@@ -81,7 +81,7 @@ typedef void (*iomux_eof_callback_t)(iomux_t *iomux, int fd, void *priv);
 /*
  * @brief Callback called on a listening fildescriptor when a new connection arrives
  * @param iomux The iomux handle
- * @param fd The fd the timer relates to
+ * @param fd The fd the event relates to
  * @param priv the private pointer registered with the callbacks
  *
  * @note Only filedescriptor on which the iomux_listen() has been called
@@ -93,7 +93,7 @@ typedef void (*iomux_connection_callback_t)(iomux_t *iomux, int fd, void *priv);
 /*
  * @brief Callback called when an output chunk can be safely relised (because flushed)
  * @param iomux The iomux handle
- * @param fd The fd the timer relates to
+ * @param fd The fd the event relates to
  * @param data The output chunk which can now be released
  * @param len The size of the chunk
  * @param priv the private pointer registered with the callbacks
@@ -159,7 +159,7 @@ void iomux_set_timeout(iomux_t *iomux,
 typedef void (*iomux_timeout_free_context_cb)(void *priv);
 
 /**
- * @brief Register timed callback.
+ * @brief Register a timer callback.
  * @param iomux The iomux handle
  * @param timeout The timeout to schedule
  * @param cb The callback to call when the timeout expires
